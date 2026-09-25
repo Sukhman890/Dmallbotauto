@@ -1,12 +1,28 @@
-const { Client, GatewayIntentBits, PermissionFlagsBits, EmbedBuilder, Events } = require("discord.js");
+const {
+    Client,
+    GatewayIntentBits,
+    PermissionFlagsBits,
+    EmbedBuilder,
+    Events
+} = require("discord.js");
+
 const fs = require("fs");
 const path = require("path");
 
+// =====================================================
+// ENVIRONMENT & CONFIG
+// =====================================================
+
 const TOKEN = process.env.DISCORD_TOKEN;
+
 if (!TOKEN) {
-    console.error("❌ DISCORD_TOKEN is missing from environment.");
+    console.error("❌ DISCORD_TOKEN is missing from environment variables.");
     process.exit(1);
 }
+
+// =====================================================
+// CLIENT INITIALIZATION
+// =====================================================
 
 const client = new Client({
     intents: [
@@ -17,24 +33,30 @@ const client = new Client({
     ]
 });
 
+// =====================================================
+// DATABASE MANAGEMENT
+// =====================================================
+
 const DB_FILE = path.join(__dirname, "database.json");
 
 const DEFAULT_DB = {
-    protectedServers: process.env.PROTECTED_SERVERS ? process.env.PROTECTED_SERVERS.split(",").map(s => s.trim()).filter(Boolean) : [],
-    addEmbed: {
-        title: process.env.ADD_EMBED_TITLE || "🤖 GANGU APP — Bot Joined",
-        description: process.env.ADD_EMBED_DESCRIPTION || "Bot has successfully joined the server. DM automation process ready!",
-        color: process.env.ADD_EMBED_COLOR ? parseInt(process.env.ADD_EMBED_COLOR, 16) || parseInt(process.env.ADD_EMBED_COLOR) : 3066993,
-        footer: process.env.ADD_EMBED_FOOTER || "GANGU APP"
+    protectedServers: [],
+
+    customEmbed: {
+        title: "📢 Custom Bot Embed",
+        description: "Your custom embed description.",
+        color: 3066993,
+        footer: "GANGU APP"
     },
+
     dmEmbed: {
-        title: process.env.DM_TITLE || "🤖 AUTO DM BOT",
-        description: process.env.DM_DESCRIPTION || "⚡ **Fully Automated DM System**\n\n🔹 Bot joins the server\n⬇️\n🔹 Automatically starts the process\n⬇️\n🔹 Sends the configured DM\n⬇️\n🔹 Completes the DM process\n⬇️\n🔹 Automatically leaves the server\n\n📩 **DM** → ✅ **Complete** → 🚪 **Leave**\n\n⚡ *Fast • Simple • Fully Automated*\n\n🚀 **Ready to set it up?**\n👉 Configure your DM message and start the bot now!",
-        color: process.env.DM_COLOR ? parseInt(process.env.DM_COLOR, 16) || parseInt(process.env.DM_COLOR) : 16766720,
-        footer: process.env.DM_FOOTER || "GANGU APP"
+        title: "🎁 Reward Drop",
+        description: "Your opt-in DM embed description.",
+        color: 16766720,
+        footer: "GANGU APP"
     },
-    queue: {},
-    autoProcess: process.env.AUTO_PROCESS !== "false"
+
+    serverLog: {}
 };
 
 function loadDB() {
@@ -42,9 +64,12 @@ function loadDB() {
         saveDB(DEFAULT_DB);
         return structuredClone(DEFAULT_DB);
     }
+
     try {
-        return { ...structuredClone(DEFAULT_DB), ...JSON.parse(fs.readFileSync(DB_FILE, "utf8")) };
-    } catch (e) {
+        const data = fs.readFileSync(DB_FILE, "utf8");
+        return { ...structuredClone(DEFAULT_DB), ...JSON.parse(data) };
+    } catch (error) {
+        console.error("❌ Database read error:", error);
         return structuredClone(DEFAULT_DB);
     }
 }
@@ -52,314 +77,319 @@ function loadDB() {
 function saveDB(db) {
     try {
         fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
-    } catch (e) {
-        console.error("❌ DB Save Error:", e);
+    } catch (error) {
+        console.error("❌ Database save error:", error);
     }
 }
 
-function isAdmin(msg) {
-    return msg.member?.permissions.has(PermissionFlagsBits.Administrator);
+function isAdmin(message) {
+    return message.member?.permissions.has(
+        PermissionFlagsBits.Administrator
+    );
 }
 
-let isProcessing = false;
-
-async function processServerQueue() {
-    if (isProcessing) return;
-    isProcessing = true;
-
-    try {
-        const db = loadDB();
-        const pendingIds = Object.keys(db.queue).filter(id => db.queue[id].status === "Waiting");
-
-        for (const serverId of pendingIds) {
-            const entry = db.queue[serverId];
-
-            if (db.protectedServers.includes(serverId)) {
-                entry.status = "Protected";
-                entry.result = "Skipped — Protected server";
-                entry.completionTime = new Date().toLocaleString();
-                saveDB(db);
-                continue;
-            }
-
-            const guild = client.guilds.cache.get(serverId);
-            if (!guild) {
-                entry.status = "Failed";
-                entry.result = "Bot not in server";
-                entry.completionTime = new Date().toLocaleString();
-                saveDB(db);
-                continue;
-            }
-
-            console.log(`⚡ Processing DM for server: ${guild.name} (${guild.id})`);
-            entry.status = "Processing";
-            saveDB(db);
-
-            let sent = 0, failed = 0;
-
-            try {
-                const members = await guild.members.fetch();
-                const dmCfg = db.dmEmbed;
-                const embed = new EmbedBuilder().setTitle(dmCfg.title).setDescription(dmCfg.description).setColor(dmCfg.color);
-                if (dmCfg.footer) embed.setFooter({ text: dmCfg.footer });
-
-                for (const [, member] of members) {
-                    if (member.user.bot) continue;
-                    try {
-                        await member.send({ embeds: [embed] });
-                        sent++;
-                        await new Promise(r => setTimeout(r, 1500));
-                    } catch (e) {
-                        failed++;
-                    }
-                }
-
-                entry.status = "Completed";
-                entry.result = `Sent: ${sent}, Failed/Blocked: ${failed}`;
-                entry.completionTime = new Date().toLocaleString();
-                saveDB(db);
-                console.log(`✅ Done for ${guild.name}. Sent: ${sent}, Failed: ${failed}`);
-            } catch (err) {
-                console.error(`❌ Process error on ${guild.name}:`, err);
-                entry.status = "Failed";
-                entry.result = err.message;
-                entry.completionTime = new Date().toLocaleString();
-                saveDB(db);
-            }
-
-            try {
-                console.log(`🚪 Leaving server: ${guild.name}`);
-                await guild.leave();
-            } catch (leaveErr) {
-                console.error(`❌ Leave error on ${guild.name}:`, leaveErr);
-            }
-        }
-    } catch (err) {
-        console.error("❌ Queue error:", err);
-    } finally {
-        isProcessing = false;
-    }
-}
+// =====================================================
+// READY EVENT
+// =====================================================
 
 client.once(Events.ClientReady, (c) => {
     console.log("=================================");
-    console.log(`✅ BOT ONLINE: ${c.user.tag}`);
+    console.log("✅ BOT ONLINE");
+    console.log(`🤖 ${c.user.tag}`);
+    console.log(`🆔 ${c.user.id}`);
     console.log(`🌐 Active Servers: ${c.guilds.cache.size}`);
+    console.log(`📡 WebSocket Ping: ${c.ws.ping}ms`);
     console.log("=================================");
-    processServerQueue();
 });
 
-client.on(Events.MessageCreate, async (msg) => {
-    if (msg.author.bot || !msg.guild) return;
-    const text = msg.content.trim();
-    if (!text.startsWith("!")) return;
+// =====================================================
+// COMMANDS
+// =====================================================
 
-    const args = text.split(/\s+/);
-    const cmd = args.shift().toLowerCase();
+client.on(Events.MessageCreate, async (message) => {
+    if (message.author.bot || !message.guild) return;
 
-    if (cmd === "!help") {
+    const content = message.content.trim();
+    if (!content.startsWith("!")) return;
+
+    const args = content.split(/\s+/);
+    const command = args.shift().toLowerCase();
+
+    // =================================================
+    // !help
+    // =================================================
+
+    if (command === "!help") {
         const embed = new EmbedBuilder()
-            .setTitle("🤖 GANGU APP — Command Guide")
-            .setDescription("Here is the list of all available commands and their explanations:")
+            .setTitle("🤖 GANGU APP — Commands")
+            .setDescription("Available bot commands:")
             .addFields(
                 {
-                    name: "🏓 General Commands",
+                    name: "🏓 General",
                     value:
-                        "`!ping` — Check bot response latency & API websocket ping.\n" +
-                        "`!status` — View online status, server count, queue size & protected servers.\n" +
-                        "`!help` — Show this command help guide."
+                        "`!ping` — Check bot latency\n" +
+                        "`!status` — Show bot status\n" +
+                        "`!help` — Show command list"
                 },
                 {
-                    name: "👁️ Embed Previews & Display",
+                    name: "🔒 Protected Servers",
                     value:
-                        "`!embed` *(or `!normalembed`)* — Send the Bot Welcome/Normal embed to this channel.\n" +
-                        "`!viewdmallembed` *(or `!viewdm`)* — Preview the DM All embed sent to members.\n" +
-                        "`!viewnormalembed` *(or `!viewadd`)* — Preview the Bot Welcome embed."
+                        "`!save` — Mark current server as protected"
                 },
                 {
-                    name: "⚙️ Embed Setup *(Admin Only)*",
+                    name: "🎨 Custom Embeds",
                     value:
-                        "`!dmallembed Title | Description` — Configure the DM message title & text.\n" +
-                        "`!addembed Title | Description` — Configure the Bot Welcome embed title & text."
+                        "`!embed` — Display configured custom embed\n" +
+                        "`!setembed Title | Description` — Update custom embed\n" +
+                        "`!setdmembed Title | Description` — Update DM embed"
                 },
                 {
-                    name: "🔒 Server & Queue Management *(Admin Only)*",
+                    name: "📊 Status & Logs",
                     value:
-                        "`!save` — Permanently protect current server (skips DMing & auto-leave).\n" +
-                        "`!queue` — View server queue status (Waiting, Processing, Completed).\n" +
-                        "`!process` — Manually trigger queue processing immediately."
+                        "`!queue` — Show server status log"
                 }
             )
             .setColor(3066993)
-            .setFooter({ text: "GANGU APP • Automated DM System" })
+            .setFooter({ text: "GANGU APP" })
             .setTimestamp();
-        return msg.channel.send({ embeds: [embed] });
+
+        return message.channel.send({ embeds: [embed] });
     }
 
-    if (cmd === "!ping") return msg.reply(`🏓 Pong! **${client.ws.ping}ms**`);
+    // =================================================
+    // !ping
+    // =================================================
 
-    if (cmd === "!status") {
+    if (command === "!ping") {
+        return message.reply(`🏓 Pong! **${client.ws.ping}ms**`);
+    }
+
+    // =================================================
+    // !status
+    // =================================================
+
+    if (command === "!status") {
         const db = loadDB();
+
         const embed = new EmbedBuilder()
             .setTitle("🤖 Bot Status")
             .addFields(
                 { name: "Status", value: "🟢 Online", inline: true },
                 { name: "Servers", value: `${client.guilds.cache.size}`, inline: true },
-                { name: "Protected", value: `${db.protectedServers.length}`, inline: true },
-                { name: "Queue", value: `${Object.keys(db.queue).length}`, inline: true }
+                { name: "Ping", value: `${client.ws.ping}ms`, inline: true },
+                { name: "Protected", value: `${db.protectedServers.length}`, inline: true }
             )
             .setColor(5763719);
-        return msg.channel.send({ embeds: [embed] });
+
+        return message.channel.send({ embeds: [embed] });
     }
 
-    if (["!save", "!dmallembed", "!addembed", "!queue", "!process"].includes(cmd)) {
-        if (!isAdmin(msg)) return msg.reply("❌ Administrator permission required.");
+    // =================================================
+    // ADMIN PERMISSION CHECK
+    // =================================================
+
+    if (
+        command === "!save" ||
+        command === "!setembed" ||
+        command === "!setdmembed" ||
+        command === "!queue"
+    ) {
+        if (!isAdmin(message)) {
+            return message.reply("❌ Administrator permission required.");
+        }
     }
 
-    if (cmd === "!save") {
+    // =================================================
+    // !save
+    // =================================================
+
+    if (command === "!save") {
         const db = loadDB();
-        if (!db.protectedServers.includes(msg.guild.id)) {
-            db.protectedServers.push(msg.guild.id);
-            if (db.queue[msg.guild.id]) {
-                db.queue[msg.guild.id].status = "Protected";
-                db.queue[msg.guild.id].result = "Skipped — Protected server";
-                db.queue[msg.guild.id].completionTime = new Date().toLocaleString();
-            }
+
+        if (!db.protectedServers.includes(message.guild.id)) {
+            db.protectedServers.push(message.guild.id);
             saveDB(db);
-            return msg.reply(`🔒 **${msg.guild.name}** is now protected.`);
-        }
-        return msg.reply("ℹ️ Server is already protected.");
-    }
-
-    // =================================================
-    // VIEW EMBED COMMANDS
-    // =================================================
-    if (cmd === "!viewdmallembed" || cmd === "!viewdm" || cmd === "!viewdmembed") {
-        const db = loadDB();
-        const cfg = db.dmEmbed;
-        const embed = new EmbedBuilder().setTitle(cfg.title).setDescription(cfg.description).setColor(cfg.color);
-        if (cfg.footer) embed.setFooter({ text: cfg.footer });
-        return msg.channel.send({ content: "📩 **DM All Embed Preview:**", embeds: [embed] });
-    }
-
-    if (cmd === "!viewnormalembed" || cmd === "!viewadd" || cmd === "!viewaddembed" || cmd === "!viewembed") {
-        const db = loadDB();
-        const cfg = db.addEmbed;
-        const embed = new EmbedBuilder().setTitle(cfg.title).setDescription(cfg.description).setColor(cfg.color);
-        if (cfg.footer) embed.setFooter({ text: cfg.footer });
-        return msg.channel.send({ content: "🤖 **Normal / Bot Adding Embed Preview:**", embeds: [embed] });
-    }
-
-    // =================================================
-    // SET EMBED COMMANDS
-    // =================================================
-    if (cmd === "!dmallembed" || cmd === "!setdm" || cmd === "!setdmembed") {
-        const input = args.join(" ");
-        const db = loadDB();
-
-        if (!input) {
-            const cfg = db.dmEmbed;
-            const embed = new EmbedBuilder().setTitle(cfg.title).setDescription(cfg.description).setColor(cfg.color);
-            if (cfg.footer) embed.setFooter({ text: cfg.footer });
-            return msg.channel.send({ content: "📩 **Current DM All Embed Preview:**", embeds: [embed] });
+            return message.reply(
+                `🔒 **${message.guild.name}** is now permanently protected.`
+            );
         }
 
-        const parts = input.split("|");
-        if (parts.length < 2) return msg.reply("⚠️ Usage: `!dmallembed Title | Description`");
+        return message.reply("ℹ️ This server is already protected.");
+    }
+
+    // =================================================
+    // !embed
+    // =================================================
+
+    if (command === "!embed") {
+        const db = loadDB();
+        const cfg = db.customEmbed;
+
+        const embed = new EmbedBuilder()
+            .setTitle(cfg.title)
+            .setDescription(cfg.description)
+            .setColor(cfg.color);
+
+        if (cfg.footer) {
+            embed.setFooter({ text: cfg.footer });
+        }
+
+        return message.channel.send({ embeds: [embed] });
+    }
+
+    // =================================================
+    // !setembed
+    // =================================================
+
+    if (command === "!setembed") {
+        const text = args.join(" ");
+        const parts = text.split("|");
+
+        if (parts.length < 2) {
+            return message.reply(
+                "⚠️ Usage:\n`!setembed Title | Description`"
+            );
+        }
+
+        const db = loadDB();
+
+        db.customEmbed.title = parts[0].trim();
+        db.customEmbed.description = parts.slice(1).join("|").trim();
+
+        saveDB(db);
+
+        return message.reply("✅ Custom embed updated successfully.");
+    }
+
+    // =================================================
+    // !setdmembed
+    // =================================================
+
+    if (command === "!setdmembed") {
+        const text = args.join(" ");
+        const parts = text.split("|");
+
+        if (parts.length < 2) {
+            return message.reply(
+                "⚠️ Usage:\n`!setdmembed Title | Description`"
+            );
+        }
+
+        const db = loadDB();
 
         db.dmEmbed.title = parts[0].trim();
         db.dmEmbed.description = parts.slice(1).join("|").trim();
+
         saveDB(db);
-        return msg.reply("✅ DM All Embed updated successfully.");
-    }
 
-    if (cmd === "!addembed" || cmd === "!setadd" || cmd === "!setaddembed") {
-        const input = args.join(" ");
-        const db = loadDB();
-
-        if (!input) {
-            const cfg = db.addEmbed;
-            const embed = new EmbedBuilder().setTitle(cfg.title).setDescription(cfg.description).setColor(cfg.color);
-            if (cfg.footer) embed.setFooter({ text: cfg.footer });
-            return msg.channel.send({ content: "🤖 **Current Bot Adding Embed Preview:**", embeds: [embed] });
-        }
-
-        const parts = input.split("|");
-        if (parts.length < 2) return msg.reply("⚠️ Usage: `!addembed Title | Description`");
-
-        db.addEmbed.title = parts[0].trim();
-        db.addEmbed.description = parts.slice(1).join("|").trim();
-        saveDB(db);
-        return msg.reply("✅ Bot Adding Embed updated successfully.");
+        return message.reply("✅ DM embed updated successfully.");
     }
 
     // =================================================
-    // !embed / !normalembed (Send embed to channel)
+    // !queue
     // =================================================
-    if (cmd === "!embed" || cmd === "!normalembed") {
-        const db = loadDB();
-        const cfg = db.addEmbed;
-        const embed = new EmbedBuilder().setTitle(cfg.title).setDescription(cfg.description).setColor(cfg.color);
-        if (cfg.footer) embed.setFooter({ text: cfg.footer });
-        return msg.channel.send({ embeds: [embed] });
-    }
 
-    if (cmd === "!queue") {
+    if (command === "!queue") {
         const db = loadDB();
-        const entries = Object.entries(db.queue);
-        if (!entries.length) return msg.reply("📊 Queue is empty.");
-        let out = "📊 **SERVER QUEUE**\n\n", pos = 1;
-        for (const [id, data] of entries) {
-            out += `**${pos++}. ${data.serverName}** (\`${id}\`)\nStatus: **${data.status}** | Result: ${data.result}\n\n`;
+        const entries = Object.entries(db.serverLog);
+
+        if (entries.length === 0) {
+            return message.reply("📊 The server log is empty.");
         }
-        return msg.reply(out);
-    }
 
-    if (cmd === "!process") {
-        msg.reply("⚡ Processing queue...");
-        processServerQueue();
+        let output = "📊 **SERVER LOG**\n\n";
+        let position = 1;
+
+        for (const [serverId, data] of entries) {
+            output +=
+                `**${position}. ${data.serverName}**\n` +
+                `🆔 ID: \`${serverId}\`\n` +
+                `📌 Status: **${data.status}**\n` +
+                `⏰ Joined: ${data.joinedTime}\n\n`;
+            position++;
+        }
+
+        return message.reply(output);
     }
 });
+
+// =====================================================
+// SERVER JOIN EVENT (Compliant Welcome Message)
+// =====================================================
 
 client.on(Events.GuildCreate, async (guild) => {
     console.log(`➕ Joined server: ${guild.name} (${guild.id})`);
+
     const db = loadDB();
-    const id = guild.id;
-    db.queue[id] = { serverName: guild.name, status: "Waiting", result: "Pending", completionTime: "Not completed" };
+    const serverId = guild.id;
 
-    // Send Bot Adding embed to system channel or first writable channel
-    try {
-        const addCfg = db.addEmbed;
-        const addEmbed = new EmbedBuilder().setTitle(addCfg.title).setDescription(addCfg.description).setColor(addCfg.color);
-        if (addCfg.footer) addEmbed.setFooter({ text: addCfg.footer });
-
-        const channel = guild.systemChannel || guild.channels.cache.find(c => c.isTextBased() && c.permissionsFor(guild.members.me)?.has("SendMessages"));
-        if (channel) {
-            await channel.send({ embeds: [addEmbed] });
-        }
-    } catch (e) {
-        console.error(`❌ Could not send Add Embed to ${guild.name}:`, e.message);
-    }
-
-    if (db.protectedServers.includes(id)) {
-        db.queue[id].status = "Protected";
-        db.queue[id].result = "Skipped — Protected server";
-        db.queue[id].completionTime = new Date().toLocaleString();
-        saveDB(db);
-        return;
-    }
+    db.serverLog[serverId] = {
+        serverName: guild.name,
+        status: "Active",
+        joinedTime: new Date().toLocaleString()
+    };
 
     saveDB(db);
-    if (db.autoProcess) processServerQueue();
+
+    // Send welcome embed to system channel or first writable channel
+    try {
+        const cfg = db.customEmbed;
+        const embed = new EmbedBuilder()
+            .setTitle(cfg.title)
+            .setDescription(cfg.description)
+            .setColor(cfg.color);
+
+        if (cfg.footer) {
+            embed.setFooter({ text: cfg.footer });
+        }
+
+        const channel = guild.systemChannel || guild.channels.cache.find(
+            (c) => c.isTextBased() && c.permissionsFor(guild.members.me)?.has("SendMessages")
+        );
+
+        if (channel) {
+            await channel.send({ embeds: [embed] });
+        }
+    } catch (error) {
+        console.error(`❌ Could not send welcome embed to ${guild.name}:`, error);
+    }
 });
 
-client.on(Events.GuildDelete, (g) => console.log(`➖ Left server: ${g.name}`));
-client.on(Events.Error, (e) => console.error("❌ Discord Error:", e));
-process.on("unhandledRejection", (e) => console.error("❌ Unhandled Rejection:", e));
-process.on("uncaughtException", (e) => console.error("❌ Uncaught Exception:", e));
+// =====================================================
+// SERVER LEAVE EVENT
+// =====================================================
+
+client.on(Events.GuildDelete, (guild) => {
+    console.log(`➖ Removed from server: ${guild.name}`);
+});
+
+// =====================================================
+// ERROR HANDLING
+// =====================================================
+
+client.on(Events.Error, (error) => {
+    console.error("❌ Discord error:", error);
+});
+
+process.on("unhandledRejection", (error) => {
+    console.error("❌ Unhandled rejection:", error);
+});
+
+process.on("uncaughtException", (error) => {
+    console.error("❌ Uncaught exception:", error);
+});
+
+// =====================================================
+// LOGIN
+// =====================================================
 
 console.log("🔄 Connecting to Discord...");
-client.login(TOKEN).catch((err) => {
-    console.error("❌ Login Failed:", err);
-    process.exit(1);
-});
+
+client.login(TOKEN)
+    .then(() => {
+        console.log("✅ Login request accepted.");
+    })
+    .catch((error) => {
+        console.error("❌ Login failed:", error);
+        process.exit(1);
+    });
