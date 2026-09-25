@@ -2,7 +2,10 @@ const {
     Client,
     GatewayIntentBits,
     PermissionFlagsBits,
-    EmbedBuilder
+    EmbedBuilder,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle
 } = require("discord.js");
 
 const fs = require("fs");
@@ -15,7 +18,7 @@ const path = require("path");
 const TOKEN = process.env.DISCORD_TOKEN;
 
 if (!TOKEN) {
-    console.error("❌ DISCORD_TOKEN is missing.");
+    console.error("❌ DISCORD_TOKEN is missing from Railway.");
     process.exit(1);
 }
 
@@ -41,20 +44,28 @@ const DB_FILE = path.join(__dirname, "database.json");
 const DEFAULT_DB = {
     protectedServers: [],
 
-    // Embed shown for bot/add-server information
     addEmbed: {
-        title: "🤖 GANGU APP",
+        title: "🎁 CLAIM YOUR REWARD",
         description:
-            "Thanks for adding the bot to your server!",
-        color: 3066993,
-        footer: "GANGU APP"
+            "Congratulations! You have been selected to receive a reward.\n\n" +
+            "🎁 **How to claim:**\n" +
+            "1. Join the official server.\n" +
+            "2. Complete the event requirements.\n" +
+            "3. Click the button below to submit your claim.\n\n" +
+            "⏳ Claims are reviewed before rewards are delivered.",
+        color: 16167971,
+        footer: "Reward Event • Official Claim System",
+
+        button: {
+            enabled: true,
+            label: "🎁 Claim Reward",
+            url: "https://discord.gg/dkfnz8kHr"
+        }
     },
 
-    // Embed used for DMall
     dmEmbed: {
         title: "🎁 Reward Drop",
-        description:
-            "Your DM embed description.",
+        description: "Your DM reward message.",
         color: 16766720,
         footer: "GANGU APP"
     },
@@ -62,50 +73,14 @@ const DEFAULT_DB = {
     queue: {}
 };
 
-function loadDB() {
-    if (!fs.existsSync(DB_FILE)) {
-        saveDB(DEFAULT_DB);
-        return structuredClone(DEFAULT_DB);
-    }
+// =====================================================
+// DATABASE FUNCTIONS
+// =====================================================
 
-    try {
-        const data = JSON.parse(
-            fs.readFileSync(DB_FILE, "utf8")
-        );
-
-        // Migrate old database automatically
-        if (!data.addEmbed) {
-            data.addEmbed = structuredClone(
-                DEFAULT_DB.addEmbed
-            );
-        }
-
-        if (!data.dmEmbed) {
-            data.dmEmbed = structuredClone(
-                DEFAULT_DB.dmEmbed
-            );
-        }
-
-        if (!data.protectedServers) {
-            data.protectedServers = [];
-        }
-
-        if (!data.queue) {
-            data.queue = {};
-        }
-
-        saveDB(data);
-
-        return data;
-
-    } catch (error) {
-        console.error(
-            "❌ Database read error:",
-            error
-        );
-
-        return structuredClone(DEFAULT_DB);
-    }
+function cloneDefault() {
+    return JSON.parse(
+        JSON.stringify(DEFAULT_DB)
+    );
 }
 
 function saveDB(db) {
@@ -122,6 +97,75 @@ function saveDB(db) {
     }
 }
 
+function loadDB() {
+    if (!fs.existsSync(DB_FILE)) {
+        const db = cloneDefault();
+        saveDB(db);
+        return db;
+    }
+
+    try {
+        const db = JSON.parse(
+            fs.readFileSync(DB_FILE, "utf8")
+        );
+
+        // -----------------------------
+        // Migration / missing settings
+        // -----------------------------
+
+        if (!db.protectedServers) {
+            db.protectedServers = [];
+        }
+
+        if (!db.queue) {
+            db.queue = {};
+        }
+
+        if (!db.addEmbed) {
+            db.addEmbed =
+                JSON.parse(
+                    JSON.stringify(
+                        DEFAULT_DB.addEmbed
+                    )
+                );
+        }
+
+        if (!db.addEmbed.button) {
+            db.addEmbed.button =
+                JSON.parse(
+                    JSON.stringify(
+                        DEFAULT_DB.addEmbed.button
+                    )
+                );
+        }
+
+        if (!db.dmEmbed) {
+            db.dmEmbed =
+                JSON.parse(
+                    JSON.stringify(
+                        DEFAULT_DB.dmEmbed
+                    )
+                );
+        }
+
+        saveDB(db);
+
+        return db;
+
+    } catch (error) {
+        console.error(
+            "❌ Database read error:",
+            error
+        );
+
+        return cloneDefault();
+    }
+}
+
+// =====================================================
+// ADMIN
+// =====================================================
+
 function isAdmin(message) {
     return message.member?.permissions.has(
         PermissionFlagsBits.Administrator
@@ -129,22 +173,47 @@ function isAdmin(message) {
 }
 
 // =====================================================
-// EMBED BUILDER
+// ADD EMBED BUILDER
 // =====================================================
 
-function createConfiguredEmbed(config) {
-    const embed = new EmbedBuilder()
-        .setTitle(config.title)
-        .setDescription(config.description)
-        .setColor(config.color || 3066993);
+function createAddEmbed(db) {
+    const cfg = db.addEmbed;
 
-    if (config.footer) {
+    const embed = new EmbedBuilder()
+        .setTitle(cfg.title)
+        .setDescription(cfg.description)
+        .setColor(cfg.color || 3066993);
+
+    if (cfg.footer) {
         embed.setFooter({
-            text: config.footer
+            text: cfg.footer
         });
     }
 
     return embed;
+}
+
+// =====================================================
+// ADD BUTTON BUILDER
+// =====================================================
+
+function createAddButton(db) {
+    const button = db.addEmbed?.button;
+
+    if (!button || !button.enabled) {
+        return null;
+    }
+
+    if (!button.label || !button.url) {
+        return null;
+    }
+
+    return new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setLabel(button.label)
+            .setStyle(ButtonStyle.Link)
+            .setURL(button.url)
+    );
 }
 
 // =====================================================
@@ -182,44 +251,43 @@ client.on("messageCreate", async (message) => {
         const command = args.shift().toLowerCase();
 
         // =================================================
-        // !help
+        // HELP
         // =================================================
 
         if (command === "!help") {
             const embed = new EmbedBuilder()
-                .setTitle("🤖 GANGU APP — Commands")
+                .setTitle("🤖 GANGU APP")
                 .setDescription(
-                    "Available bot commands:"
+                    "Available commands"
                 )
                 .addFields(
                     {
                         name: "🏓 General",
                         value:
-                            "`!ping` — Check latency\n" +
-                            "`!status` — Bot status\n" +
-                            "`!help` — Show commands"
-                    },
-                    {
-                        name: "🔒 Protected Servers",
-                        value:
-                            "`!save` — Protect this server"
+                            "`!ping`\n" +
+                            "`!status`\n" +
+                            "`!help`"
                     },
                     {
                         name: "🤖 Bot Add Embed",
                         value:
-                            "`!addembed` — Show add embed\n" +
-                            "`!setaddembed Title | Description` — Change add embed"
+                            "`!addembed`\n" +
+                            "`!setaddembed Title | Description`\n" +
+                            "`!addbutton Label | URL`\n" +
+                            "`!removebutton`\n" +
+                            "`!resetaddembed`"
                     },
                     {
-                        name: "📩 DMall Embed",
+                        name: "📩 DM Embed",
                         value:
-                            "`!dmallembed` — Show DMall embed\n" +
-                            "`!setdmallembed Title | Description` — Change DMall embed"
+                            "`!dmallembed`\n" +
+                            "`!setdmallembed Title | Description`"
                     },
                     {
-                        name: "📊 Queue",
+                        name: "🔒 Server",
                         value:
-                            "`!queue` — Show server queue"
+                            "`!save`\n" +
+                            "`!queue`"
                     }
                 )
                 .setColor(3066993)
@@ -234,7 +302,7 @@ client.on("messageCreate", async (message) => {
         }
 
         // =================================================
-        // !ping
+        // PING
         // =================================================
 
         if (command === "!ping") {
@@ -244,7 +312,7 @@ client.on("messageCreate", async (message) => {
         }
 
         // =================================================
-        // !status
+        // STATUS
         // =================================================
 
         if (command === "!status") {
@@ -283,8 +351,7 @@ client.on("messageCreate", async (message) => {
                         inline: true
                     }
                 )
-                .setColor(5763719)
-                .setTimestamp();
+                .setColor(5763719);
 
             return message.channel.send({
                 embeds: [embed]
@@ -292,12 +359,15 @@ client.on("messageCreate", async (message) => {
         }
 
         // =================================================
-        // ADMIN CHECK
+        // ADMIN COMMANDS
         // =================================================
 
         const adminCommands = [
             "!save",
             "!setaddembed",
+            "!addbutton",
+            "!removebutton",
+            "!resetaddembed",
             "!setdmallembed",
             "!queue"
         ];
@@ -311,7 +381,7 @@ client.on("messageCreate", async (message) => {
         }
 
         // =================================================
-        // !save
+        // !SAVE
         // =================================================
 
         if (command === "!save") {
@@ -355,23 +425,33 @@ client.on("messageCreate", async (message) => {
         }
 
         // =================================================
-        // !addembed
+        // !ADDEMBED
         // =================================================
 
         if (command === "!addembed") {
             const db = loadDB();
 
-            return message.channel.send({
-                embeds: [
-                    createConfiguredEmbed(
-                        db.addEmbed
-                    )
-                ]
-            });
+            const embed =
+                createAddEmbed(db);
+
+            const row =
+                createAddButton(db);
+
+            const payload = {
+                embeds: [embed]
+            };
+
+            if (row) {
+                payload.components = [row];
+            }
+
+            return message.channel.send(
+                payload
+            );
         }
 
         // =================================================
-        // !setaddembed
+        // !SETADDEMBED
         // =================================================
 
         if (command === "!setaddembed") {
@@ -391,35 +471,150 @@ client.on("messageCreate", async (message) => {
                 parts[0].trim();
 
             db.addEmbed.description =
-                parts.slice(1)
+                parts
+                    .slice(1)
                     .join("|")
                     .trim();
 
             saveDB(db);
 
             return message.reply(
-                "✅ Bot-add embed updated."
+                "✅ Bot-add embed updated.\n" +
+                "Use `!addembed` to preview it."
             );
         }
 
         // =================================================
-        // !dmallembed
+        // !ADDBUTTON
+        // =================================================
+
+        if (command === "!addbutton") {
+            const text = args.join(" ");
+            const parts = text.split("|");
+
+            if (parts.length < 2) {
+                return message.reply(
+                    "⚠️ Usage:\n" +
+                    "`!addbutton Button Label | https://discord.gg/example`"
+                );
+            }
+
+            const label =
+                parts[0].trim();
+
+            const url =
+                parts
+                    .slice(1)
+                    .join("|")
+                    .trim();
+
+            // Basic URL validation
+            let parsedURL;
+
+            try {
+                parsedURL =
+                    new URL(url);
+            } catch {
+                return message.reply(
+                    "❌ Invalid URL."
+                );
+            }
+
+            if (
+                parsedURL.protocol !==
+                "https:"
+            ) {
+                return message.reply(
+                    "❌ Button URL must use HTTPS."
+                );
+            }
+
+            const db = loadDB();
+
+            db.addEmbed.button = {
+                enabled: true,
+                label: label,
+                url: url
+            };
+
+            saveDB(db);
+
+            return message.reply(
+                `✅ Button added: **${label}**\n` +
+                `🔗 ${url}\n\n` +
+                "Use `!addembed` to preview it."
+            );
+        }
+
+        // =================================================
+        // !REMOVEBUTTON
+        // =================================================
+
+        if (command === "!removebutton") {
+            const db = loadDB();
+
+            db.addEmbed.button.enabled =
+                false;
+
+            saveDB(db);
+
+            return message.reply(
+                "✅ Button removed from the add embed."
+            );
+        }
+
+        // =================================================
+        // !RESETADDEMBED
+        // =================================================
+
+        if (command === "!resetaddembed") {
+            const db = loadDB();
+
+            db.addEmbed =
+                JSON.parse(
+                    JSON.stringify(
+                        DEFAULT_DB.addEmbed
+                    )
+                );
+
+            saveDB(db);
+
+            return message.reply(
+                "♻️ Bot-add embed reset to default."
+            );
+        }
+
+        // =================================================
+        // !DMALLEMBED
         // =================================================
 
         if (command === "!dmallembed") {
             const db = loadDB();
 
+            const cfg = db.dmEmbed;
+
+            const embed = new EmbedBuilder()
+                .setTitle(cfg.title)
+                .setDescription(
+                    cfg.description
+                )
+                .setColor(
+                    cfg.color || 3066993
+                );
+
+            if (cfg.footer) {
+                embed.setFooter({
+                    text: cfg.footer
+                });
+            }
+
             return message.channel.send({
-                embeds: [
-                    createConfiguredEmbed(
-                        db.dmEmbed
-                    )
-                ]
+                embeds: [embed]
             });
         }
 
         // =================================================
-        // !setdmallembed
+        // !SETDMALLEMBED
         // =================================================
 
         if (command === "!setdmallembed") {
@@ -439,30 +634,33 @@ client.on("messageCreate", async (message) => {
                 parts[0].trim();
 
             db.dmEmbed.description =
-                parts.slice(1)
+                parts
+                    .slice(1)
                     .join("|")
                     .trim();
 
             saveDB(db);
 
             return message.reply(
-                "✅ DMall embed updated."
+                "✅ DM embed updated."
             );
         }
 
         // =================================================
-        // !queue
+        // !QUEUE
         // =================================================
 
         if (command === "!queue") {
             const db = loadDB();
 
             const entries =
-                Object.entries(db.queue);
+                Object.entries(
+                    db.queue
+                );
 
             if (entries.length === 0) {
                 return message.reply(
-                    "📊 The processing queue is empty."
+                    "📊 Queue is empty."
                 );
             }
 
@@ -477,15 +675,17 @@ client.on("messageCreate", async (message) => {
             ) {
                 output +=
                     `**${position}. ${data.serverName}**\n` +
-                    `🆔 ID: \`${serverId}\`\n` +
-                    `📌 Status: **${data.status}**\n` +
-                    `📋 Result: ${data.result}\n` +
-                    `⏰ Completion: ${data.completionTime}\n\n`;
+                    `🆔 \`${serverId}\`\n` +
+                    `📌 **${data.status}**\n` +
+                    `📋 ${data.result}\n` +
+                    `⏰ ${data.completionTime}\n\n`;
 
                 position++;
             }
 
-            return message.reply(output);
+            return message.reply(
+                output
+            );
         }
 
     } catch (error) {
@@ -493,74 +693,48 @@ client.on("messageCreate", async (message) => {
             "❌ Command error:",
             error
         );
+
+        return message.reply(
+            "❌ Something went wrong."
+        );
     }
 });
 
 // =====================================================
-// BOT ADDED TO SERVER
+// BOT ADDED
 // =====================================================
 
 client.on("guildCreate", (guild) => {
     try {
         console.log(
-            `➕ Joined server: ${guild.name} (${guild.id})`
+            `➕ Joined: ${guild.name} (${guild.id})`
         );
 
         const db = loadDB();
 
-        const serverId = guild.id;
-
-        db.queue[serverId] = {
+        db.queue[guild.id] = {
             serverName: guild.name,
             status: "Waiting",
             result: "Pending",
             completionTime: "Not completed"
         };
 
-        // Protected server
         if (
             db.protectedServers.includes(
-                serverId
+                guild.id
             )
         ) {
-            db.queue[
-                serverId
-            ].status = "Protected";
+            db.queue[guild.id].status =
+                "Protected";
 
-            db.queue[
-                serverId
-            ].result =
+            db.queue[guild.id].result =
                 "Skipped — Protected server";
 
-            db.queue[
-                serverId
-            ].completionTime =
+            db.queue[guild.id].completionTime =
                 new Date().toLocaleString();
-
-            saveDB(db);
-
-            console.log(
-                `🔒 Protected: ${guild.name}`
-            );
-
-            return;
         }
 
-        // Normal server
-        db.queue[
-            serverId
-        ].status = "Waiting";
-
-        db.queue[
-            serverId
-        ].result =
-            "Waiting for authorized processing";
-
         saveDB(db);
-
-        console.log(
-            `📋 Added to queue: ${guild.name}`
-        );
 
     } catch (error) {
         console.error(
@@ -576,12 +750,12 @@ client.on("guildCreate", (guild) => {
 
 client.on("guildDelete", (guild) => {
     console.log(
-        `➖ Removed from server: ${guild.name} (${guild.id})`
+        `➖ Removed: ${guild.name} (${guild.id})`
     );
 });
 
 // =====================================================
-// ERRORS
+// ERROR HANDLING
 // =====================================================
 
 client.on("error", (error) => {
@@ -615,7 +789,9 @@ process.on(
 // LOGIN
 // =====================================================
 
-console.log("🔄 Connecting to Discord...");
+console.log(
+    "🔄 Connecting to Discord..."
+);
 
 client.login(TOKEN)
     .then(() => {
