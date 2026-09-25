@@ -7,8 +7,8 @@ const {
 const fs = require('fs');
 const path = require('path');
 
-// --- YOUR TOKEN IS ALREADY INSERTED HERE ---
-const BOT_TOKEN = "MTU1MjkxMzk2Njg4MjIyNjE3Ng.GGeZNa.WXA3HjBOujfkm_EBG5NTEM2WCnDEW7qeDcFzdk";
+// --- YOUR NEW TOKEN IS INSERTED HERE ---
+const BOT_TOKEN = "MTU1MjkxMzk2Njg4MjIyNjE3Ng.GKSSbV.wlVKg6KkE4zqdpKdVadTbE3Ij8rmBKcEno5ECY";
 
 if (!BOT_TOKEN) {
     console.error("❌ CRITICAL ERROR: BOT_TOKEN is missing!");
