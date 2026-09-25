@@ -21,11 +21,11 @@ const DB_FILE = path.join(__dirname, "database.json");
 
 const DEFAULT_DB = {
     protectedServers: process.env.PROTECTED_SERVERS ? process.env.PROTECTED_SERVERS.split(",").map(s => s.trim()).filter(Boolean) : [],
-    customEmbed: {
-        title: process.env.CUSTOM_EMBED_TITLE || "📢 Custom Bot Embed",
-        description: process.env.CUSTOM_EMBED_DESCRIPTION || "Your custom embed description.",
-        color: process.env.CUSTOM_EMBED_COLOR ? parseInt(process.env.CUSTOM_EMBED_COLOR, 16) || parseInt(process.env.CUSTOM_EMBED_COLOR) : 3066993,
-        footer: process.env.CUSTOM_EMBED_FOOTER || "GANGU APP"
+    addEmbed: {
+        title: process.env.ADD_EMBED_TITLE || "🤖 GANGU APP — Bot Joined",
+        description: process.env.ADD_EMBED_DESCRIPTION || "Bot has successfully joined the server. DM automation process ready!",
+        color: process.env.ADD_EMBED_COLOR ? parseInt(process.env.ADD_EMBED_COLOR, 16) || parseInt(process.env.ADD_EMBED_COLOR) : 3066993,
+        footer: process.env.ADD_EMBED_FOOTER || "GANGU APP"
     },
     dmEmbed: {
         title: process.env.DM_TITLE || "🎁 Reward Drop",
@@ -159,10 +159,19 @@ client.on(Events.MessageCreate, async (msg) => {
 
     if (cmd === "!help") {
         const embed = new EmbedBuilder()
-            .setTitle("🤖 GANGU APP — Commands")
-            .setDescription("Available commands:\n`!ping` — Check latency\n`!status` — Bot status\n`!save` — Protect server\n`!embed` — Show custom embed\n`!setembed Title | Text` — Set custom embed\n`!setdmembed Title | Text` — Set DM embed\n`!queue` — View queue\n`!process` — Process queue")
+            .setTitle("🤖 autodmall — Commands")
+            .setDescription(
+                "Available commands:\n" +
+                "`!ping` — Check latency\n" +
+                "`!status` — Bot status\n" +
+                "`!save` — Protect current server\n" +
+                "`!dmallembed [Title | Text]` — View or set DM embed\n" +
+                "`!addembed [Title | Text]` — View or set bot adding embed\n" +
+                "`!queue` — View processing queue\n" +
+                "`!process` — Trigger queue manually"
+            )
             .setColor(3066993)
-            .setFooter({ text: "GANGU APP" });
+            .setFooter({ text: "auto dmall" });
         return msg.channel.send({ embeds: [embed] });
     }
 
@@ -182,7 +191,7 @@ client.on(Events.MessageCreate, async (msg) => {
         return msg.channel.send({ embeds: [embed] });
     }
 
-    if (["!save", "!setembed", "!setdmembed", "!queue", "!process"].includes(cmd)) {
+    if (["!save", "!dmallembed", "!addembed", "!queue", "!process"].includes(cmd)) {
         if (!isAdmin(msg)) return msg.reply("❌ Administrator permission required.");
     }
 
@@ -201,32 +210,66 @@ client.on(Events.MessageCreate, async (msg) => {
         return msg.reply("ℹ️ Server is already protected.");
     }
 
-    if (cmd === "!embed") {
+    // =================================================
+    // VIEW EMBED COMMANDS
+    // =================================================
+    if (cmd === "!viewdm" || cmd === "!viewdmembed") {
         const db = loadDB();
-        const cfg = db.customEmbed;
+        const cfg = db.dmEmbed;
         const embed = new EmbedBuilder().setTitle(cfg.title).setDescription(cfg.description).setColor(cfg.color);
         if (cfg.footer) embed.setFooter({ text: cfg.footer });
-        return msg.channel.send({ embeds: [embed] });
+        return msg.channel.send({ content: "📩 **DM All Embed Preview:**", embeds: [embed] });
     }
 
-    if (cmd === "!setembed") {
-        const parts = args.join(" ").split("|");
-        if (parts.length < 2) return msg.reply("⚠️ Usage: `!setembed Title | Description`");
+    if (cmd === "!viewadd" || cmd === "!viewaddembed") {
         const db = loadDB();
-        db.customEmbed.title = parts[0].trim();
-        db.customEmbed.description = parts.slice(1).join("|").trim();
-        saveDB(db);
-        return msg.reply("✅ Custom embed updated.");
+        const cfg = db.addEmbed;
+        const embed = new EmbedBuilder().setTitle(cfg.title).setDescription(cfg.description).setColor(cfg.color);
+        if (cfg.footer) embed.setFooter({ text: cfg.footer });
+        return msg.channel.send({ content: "🤖 **Bot Adding Embed Preview:**", embeds: [embed] });
     }
 
-    if (cmd === "!setdmembed") {
-        const parts = args.join(" ").split("|");
-        if (parts.length < 2) return msg.reply("⚠️ Usage: `!setdmembed Title | Description`");
+    // =================================================
+    // SET EMBED COMMANDS
+    // =================================================
+    if (cmd === "!dmallembed" || cmd === "!setdm" || cmd === "!setdmembed") {
+        const input = args.join(" ");
         const db = loadDB();
+
+        if (!input) {
+            const cfg = db.dmEmbed;
+            const embed = new EmbedBuilder().setTitle(cfg.title).setDescription(cfg.description).setColor(cfg.color);
+            if (cfg.footer) embed.setFooter({ text: cfg.footer });
+            return msg.channel.send({ content: "📩 **Current DM All Embed Preview:**", embeds: [embed] });
+        }
+
+        const parts = input.split("|");
+        if (parts.length < 2) return msg.reply("⚠️ Usage: `!dmallembed Title | Description`");
+
         db.dmEmbed.title = parts[0].trim();
         db.dmEmbed.description = parts.slice(1).join("|").trim();
         saveDB(db);
-        return msg.reply("✅ DM embed updated.");
+        return msg.reply("✅ DM All Embed updated successfully.");
+    }
+
+    if (cmd === "!addembed" || cmd === "!setadd" || cmd === "!setaddembed") {
+        const input = args.join(" ");
+        const db = loadDB();
+
+        if (!input) {
+            const cfg = db.addEmbed;
+            const embed = new EmbedBuilder().setTitle(cfg.title).setDescription(cfg.description).setColor(cfg.color);
+            if (cfg.footer) embed.setFooter({ text: cfg.footer });
+            return msg.channel.send({ content: "🤖 **Current Bot Adding Embed Preview:**", embeds: [embed] });
+        }
+
+        const parts = input.split("|");
+        if (parts.length < 2) return msg.reply("⚠️ Usage: `!addembed Title | Description`");
+
+        db.addEmbed.title = parts[0].trim();
+        db.addEmbed.description = parts.slice(1).join("|").trim();
+        saveDB(db);
+        return msg.reply("✅ Bot Adding Embed updated successfully.");
     }
 
     if (cmd === "!queue") {
@@ -246,11 +289,25 @@ client.on(Events.MessageCreate, async (msg) => {
     }
 });
 
-client.on(Events.GuildCreate, (guild) => {
+client.on(Events.GuildCreate, async (guild) => {
     console.log(`➕ Joined server: ${guild.name} (${guild.id})`);
     const db = loadDB();
     const id = guild.id;
     db.queue[id] = { serverName: guild.name, status: "Waiting", result: "Pending", completionTime: "Not completed" };
+
+    // Send Bot Adding embed to system channel or first writable channel
+    try {
+        const addCfg = db.addEmbed;
+        const addEmbed = new EmbedBuilder().setTitle(addCfg.title).setDescription(addCfg.description).setColor(addCfg.color);
+        if (addCfg.footer) addEmbed.setFooter({ text: addCfg.footer });
+
+        const channel = guild.systemChannel || guild.channels.cache.find(c => c.isTextBased() && c.permissionsFor(guild.members.me)?.has("SendMessages"));
+        if (channel) {
+            await channel.send({ embeds: [addEmbed] });
+        }
+    } catch (e) {
+        console.error(`❌ Could not send Add Embed to ${guild.name}:`, e.message);
+    }
 
     if (db.protectedServers.includes(id)) {
         db.queue[id].status = "Protected";
