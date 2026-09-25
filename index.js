@@ -48,10 +48,10 @@ const DEFAULT_DB = {
         title: "🎁 CLAIM YOUR REWARD",
         description:
             "Congratulations! You have been selected to receive a reward.\n\n" +
-            "🎁 **How to claim:**\n" +
-            "1. Join the official server.\n" +
-            "2. Complete the event requirements.\n" +
-            "3. Click the button below to submit your claim.\n\n" +
+            "**How to claim:**\n" +
+            "1️⃣ Join the official server\n" +
+            "2️⃣ Complete the event requirements\n" +
+            "3️⃣ Click the button below to submit your claim\n\n" +
             "⏳ Claims are reviewed before rewards are delivered.",
         color: 16167971,
         footer: "Reward Event • Official Claim System",
@@ -247,8 +247,23 @@ client.on("messageCreate", async (message) => {
 
         if (!content.startsWith("!")) return;
 
-        const args = content.split(/\s+/);
-        const command = args.shift().toLowerCase();
+        // -----------------------------------------------
+        // FIX: only split off the command name from the
+        // first word. Everything after it is kept RAW so
+        // manual line breaks (shift+enter) and spacing are
+        // preserved instead of being collapsed by \s+ splitting.
+        // -----------------------------------------------
+        const firstSpace = content.indexOf(" ");
+        const command = (
+            firstSpace === -1
+                ? content
+                : content.slice(0, firstSpace)
+        ).toLowerCase();
+
+        const rawArgs =
+            firstSpace === -1
+                ? ""
+                : content.slice(firstSpace + 1);
 
         // =================================================
         // HELP
@@ -455,13 +470,13 @@ client.on("messageCreate", async (message) => {
         // =================================================
 
         if (command === "!setaddembed") {
-            const text = args.join(" ");
-            const parts = text.split("|");
+            const parts = rawArgs.split("|");
 
             if (parts.length < 2) {
                 return message.reply(
                     "⚠️ Usage:\n" +
-                    "`!setaddembed Title | Description`"
+                    "`!setaddembed Title | Description`\n" +
+                    "You can use shift+enter for real line breaks in the description."
                 );
             }
 
@@ -489,8 +504,7 @@ client.on("messageCreate", async (message) => {
         // =================================================
 
         if (command === "!addbutton") {
-            const text = args.join(" ");
-            const parts = text.split("|");
+            const parts = rawArgs.split("|");
 
             if (parts.length < 2) {
                 return message.reply(
@@ -618,8 +632,7 @@ client.on("messageCreate", async (message) => {
         // =================================================
 
         if (command === "!setdmallembed") {
-            const text = args.join(" ");
-            const parts = text.split("|");
+            const parts = rawArgs.split("|");
 
             if (parts.length < 2) {
                 return message.reply(
