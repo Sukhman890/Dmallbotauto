@@ -1,13 +1,11 @@
 {
-  "name": "discord-workflow-bot",
+  "name": "discord-bot",
   "version": "1.0.0",
-  "description": "Discord bot with protected servers, independent embeds, and auto-leave queue",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
-    "discord.js": "^14.14.1",
-    "dotenv": "^16.4.5"
+    "discord.js": "^14.24.2"
   }
 }
