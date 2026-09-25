@@ -159,19 +159,40 @@ client.on(Events.MessageCreate, async (msg) => {
 
     if (cmd === "!help") {
         const embed = new EmbedBuilder()
-            .setTitle("🤖 autodmall — Commands")
-            .setDescription(
-                "Available commands:\n" +
-                "`!ping` — Check latency\n" +
-                "`!status` — Bot status\n" +
-                "`!save` — Protect current server\n" +
-                "`!dmallembed [Title | Text]` — View or set DM embed\n" +
-                "`!addembed [Title | Text]` — View or set bot adding embed\n" +
-                "`!queue` — View processing queue\n" +
-                "`!process` — Trigger queue manually"
+            .setTitle("🤖 GANGU APP — Command Guide")
+            .setDescription("Here is the list of all available commands and their explanations:")
+            .addFields(
+                {
+                    name: "🏓 General Commands",
+                    value:
+                        "`!ping` — Check bot response latency & API websocket ping.\n" +
+                        "`!status` — View online status, server count, queue size & protected servers.\n" +
+                        "`!help` — Show this command help guide."
+                },
+                {
+                    name: "👁️ Embed Previews & Display",
+                    value:
+                        "`!embed` *(or `!normalembed`)* — Send the Bot Welcome/Normal embed to this channel.\n" +
+                        "`!viewdmallembed` *(or `!viewdm`)* — Preview the DM All embed sent to members.\n" +
+                        "`!viewnormalembed` *(or `!viewadd`)* — Preview the Bot Welcome embed."
+                },
+                {
+                    name: "⚙️ Embed Setup *(Admin Only)*",
+                    value:
+                        "`!dmallembed Title | Description` — Configure the DM message title & text.\n" +
+                        "`!addembed Title | Description` — Configure the Bot Welcome embed title & text."
+                },
+                {
+                    name: "🔒 Server & Queue Management *(Admin Only)*",
+                    value:
+                        "`!save` — Permanently protect current server (skips DMing & auto-leave).\n" +
+                        "`!queue` — View server queue status (Waiting, Processing, Completed).\n" +
+                        "`!process` — Manually trigger queue processing immediately."
+                }
             )
             .setColor(3066993)
-            .setFooter({ text: "auto dmall" });
+            .setFooter({ text: "GANGU APP • Automated DM System" })
+            .setTimestamp();
         return msg.channel.send({ embeds: [embed] });
     }
 
@@ -213,7 +234,7 @@ client.on(Events.MessageCreate, async (msg) => {
     // =================================================
     // VIEW EMBED COMMANDS
     // =================================================
-    if (cmd === "!viewdm" || cmd === "!viewdmembed") {
+    if (cmd === "!viewdmallembed" || cmd === "!viewdm" || cmd === "!viewdmembed") {
         const db = loadDB();
         const cfg = db.dmEmbed;
         const embed = new EmbedBuilder().setTitle(cfg.title).setDescription(cfg.description).setColor(cfg.color);
@@ -221,12 +242,12 @@ client.on(Events.MessageCreate, async (msg) => {
         return msg.channel.send({ content: "📩 **DM All Embed Preview:**", embeds: [embed] });
     }
 
-    if (cmd === "!viewadd" || cmd === "!viewaddembed") {
+    if (cmd === "!viewnormalembed" || cmd === "!viewadd" || cmd === "!viewaddembed" || cmd === "!viewembed") {
         const db = loadDB();
         const cfg = db.addEmbed;
         const embed = new EmbedBuilder().setTitle(cfg.title).setDescription(cfg.description).setColor(cfg.color);
         if (cfg.footer) embed.setFooter({ text: cfg.footer });
-        return msg.channel.send({ content: "🤖 **Bot Adding Embed Preview:**", embeds: [embed] });
+        return msg.channel.send({ content: "🤖 **Normal / Bot Adding Embed Preview:**", embeds: [embed] });
     }
 
     // =================================================
@@ -270,6 +291,17 @@ client.on(Events.MessageCreate, async (msg) => {
         db.addEmbed.description = parts.slice(1).join("|").trim();
         saveDB(db);
         return msg.reply("✅ Bot Adding Embed updated successfully.");
+    }
+
+    // =================================================
+    // !embed / !normalembed (Send embed to channel)
+    // =================================================
+    if (cmd === "!embed" || cmd === "!normalembed") {
+        const db = loadDB();
+        const cfg = db.addEmbed;
+        const embed = new EmbedBuilder().setTitle(cfg.title).setDescription(cfg.description).setColor(cfg.color);
+        if (cfg.footer) embed.setFooter({ text: cfg.footer });
+        return msg.channel.send({ embeds: [embed] });
     }
 
     if (cmd === "!queue") {
