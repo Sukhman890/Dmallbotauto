@@ -28,8 +28,8 @@ const DEFAULT_DB = {
         footer: process.env.ADD_EMBED_FOOTER || "GANGU APP"
     },
     dmEmbed: {
-        title: process.env.DM_TITLE || "🎁 Reward Drop",
-        description: process.env.DM_DESCRIPTION || "Your DM embed description.",
+        title: process.env.DM_TITLE || "🤖 AUTO DM BOT",
+        description: process.env.DM_DESCRIPTION || "⚡ **Fully Automated DM System**\n\n🔹 Bot joins the server\n⬇️\n🔹 Automatically starts the process\n⬇️\n🔹 Sends the configured DM\n⬇️\n🔹 Completes the DM process\n⬇️\n🔹 Automatically leaves the server\n\n📩 **DM** → ✅ **Complete** → 🚪 **Leave**\n\n⚡ *Fast • Simple • Fully Automated*\n\n🚀 **Ready to set it up?**\n👉 Configure your DM message and start the bot now!",
         color: process.env.DM_COLOR ? parseInt(process.env.DM_COLOR, 16) || parseInt(process.env.DM_COLOR) : 16766720,
         footer: process.env.DM_FOOTER || "GANGU APP"
     },
