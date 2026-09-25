@@ -1,5 +1,5 @@
 {
-  "name": "discord-bot",
+  "name": "gangu-discord-bot",
   "version": "1.0.0",
   "description": "Discord.js v14 bot configured for Railway deployment.",
   "main": "index.js",
