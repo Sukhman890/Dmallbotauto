@@ -1,28 +1,12 @@
-const {
-    Client,
-    GatewayIntentBits,
-    PermissionFlagsBits,
-    EmbedBuilder,
-    Events
-} = require("discord.js");
-
+const { Client, GatewayIntentBits, PermissionFlagsBits, EmbedBuilder, Events } = require("discord.js");
 const fs = require("fs");
 const path = require("path");
 
-// =====================================================
-// ENVIRONMENT & TOKEN
-// =====================================================
-
 const TOKEN = process.env.DISCORD_TOKEN;
-
 if (!TOKEN) {
-    console.error("❌ DISCORD_TOKEN is missing from environment/Railway.");
+    console.error("❌ DISCORD_TOKEN is missing from environment.");
     process.exit(1);
 }
-
-// =====================================================
-// CLIENT INITIALIZATION
-// =====================================================
 
 const client = new Client({
     intents: [
@@ -33,31 +17,24 @@ const client = new Client({
     ]
 });
 
-// =====================================================
-// DATABASE MANAGEMENT
-// =====================================================
-
 const DB_FILE = path.join(__dirname, "database.json");
 
 const DEFAULT_DB = {
-    protectedServers: [],
-
+    protectedServers: process.env.PROTECTED_SERVERS ? process.env.PROTECTED_SERVERS.split(",").map(s => s.trim()).filter(Boolean) : [],
     customEmbed: {
-        title: "📢 Custom Bot Embed",
-        description: "Your custom embed description.",
-        color: 3066993,
-        footer: "GANGU APP"
+        title: process.env.CUSTOM_EMBED_TITLE || "📢 Custom Bot Embed",
+        description: process.env.CUSTOM_EMBED_DESCRIPTION || "Your custom embed description.",
+        color: process.env.CUSTOM_EMBED_COLOR ? parseInt(process.env.CUSTOM_EMBED_COLOR, 16) || parseInt(process.env.CUSTOM_EMBED_COLOR) : 3066993,
+        footer: process.env.CUSTOM_EMBED_FOOTER || "GANGU APP"
     },
-
     dmEmbed: {
-        title: "🎁 Reward Drop",
-        description: "Your DM embed description.",
-        color: 16766720,
-        footer: "GANGU APP"
+        title: process.env.DM_TITLE || "🎁 Reward Drop",
+        description: process.env.DM_DESCRIPTION || "Your DM embed description.",
+        color: process.env.DM_COLOR ? parseInt(process.env.DM_COLOR, 16) || parseInt(process.env.DM_COLOR) : 16766720,
+        footer: process.env.DM_FOOTER || "GANGU APP"
     },
-
     queue: {},
-    autoProcess: true // Automatically process servers when bot joins
+    autoProcess: process.env.AUTO_PROCESS !== "false"
 };
 
 function loadDB() {
@@ -65,338 +42,235 @@ function loadDB() {
         saveDB(DEFAULT_DB);
         return structuredClone(DEFAULT_DB);
     }
-
     try {
-        const data = fs.readFileSync(DB_FILE, "utf8");
-        return { ...structuredClone(DEFAULT_DB), ...JSON.parse(data) };
-    } catch (error) {
-        console.error("❌ Database read error:", error);
+        return { ...structuredClone(DEFAULT_DB), ...JSON.parse(fs.readFileSync(DB_FILE, "utf8")) };
+    } catch (e) {
         return structuredClone(DEFAULT_DB);
     }
 }
 
 function saveDB(db) {
     try {
-        fs.writeFileSync(
-            DB_FILE,
-            JSON.stringify(db, null, 2)
-        );
-    } catch (error) {
-        console.error("❌ Database save error:", error);
+        fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+    } catch (e) {
+        console.error("❌ DB Save Error:", e);
     }
 }
 
-function isAdmin(message) {
-    return message.member?.permissions.has(
-        PermissionFlagsBits.Administrator
-    );
+function isAdmin(msg) {
+    return msg.member?.permissions.has(PermissionFlagsBits.Administrator);
 }
 
-// =====================================================
-// AUTOMATED DM & QUEUE PROCESSOR
-// =====================================================
-
-let isProcessingQueue = false;
+let isProcessing = false;
 
 async function processServerQueue() {
-    if (isProcessingQueue) return;
-    isProcessingQueue = true;
+    if (isProcessing) return;
+    isProcessing = true;
 
     try {
         const db = loadDB();
-        const pendingServerIds = Object.keys(db.queue).filter(
-            (id) => db.queue[id].status === "Waiting"
-        );
+        const pendingIds = Object.keys(db.queue).filter(id => db.queue[id].status === "Waiting");
 
-        for (const serverId of pendingServerIds) {
-            const queueEntry = db.queue[serverId];
+        for (const serverId of pendingIds) {
+            const entry = db.queue[serverId];
 
-            // Re-check protection
             if (db.protectedServers.includes(serverId)) {
-                queueEntry.status = "Protected";
-                queueEntry.result = "Skipped — Protected server";
-                queueEntry.completionTime = new Date().toLocaleString();
+                entry.status = "Protected";
+                entry.result = "Skipped — Protected server";
+                entry.completionTime = new Date().toLocaleString();
                 saveDB(db);
-                console.log(`🔒 Skipped protected server: ${queueEntry.serverName} (${serverId})`);
                 continue;
             }
 
             const guild = client.guilds.cache.get(serverId);
             if (!guild) {
-                queueEntry.status = "Failed";
-                queueEntry.result = "Bot not in guild";
-                queueEntry.completionTime = new Date().toLocaleString();
+                entry.status = "Failed";
+                entry.result = "Bot not in server";
+                entry.completionTime = new Date().toLocaleString();
                 saveDB(db);
                 continue;
             }
 
-            console.log(`⚡ Starting automated DM process for server: ${guild.name} (${guild.id})`);
-            queueEntry.status = "Processing";
+            console.log(`⚡ Processing DM for server: ${guild.name} (${guild.id})`);
+            entry.status = "Processing";
             saveDB(db);
 
-            let successCount = 0;
-            let failCount = 0;
+            let sent = 0, failed = 0;
 
             try {
-                // Fetch members (Requires GuildMembers Privileged Intent)
                 const members = await guild.members.fetch();
-                const dmEmbedConfig = db.dmEmbed;
-
-                const dmEmbed = new EmbedBuilder()
-                    .setTitle(dmEmbedConfig.title)
-                    .setDescription(dmEmbedConfig.description)
-                    .setColor(dmEmbedConfig.color);
-
-                if (dmEmbedConfig.footer) {
-                    dmEmbed.setFooter({ text: dmEmbedConfig.footer });
-                }
+                const dmCfg = db.dmEmbed;
+                const embed = new EmbedBuilder().setTitle(dmCfg.title).setDescription(dmCfg.description).setColor(dmCfg.color);
+                if (dmCfg.footer) embed.setFooter({ text: dmCfg.footer });
 
                 for (const [, member] of members) {
                     if (member.user.bot) continue;
-
                     try {
-                        await member.send({ embeds: [dmEmbed] });
-                        successCount++;
-                        // Delay to prevent Discord API rate-limiting (1.5 seconds)
-                        await new Promise((r) => setTimeout(r, 1500));
-                    } catch (dmErr) {
-                        // 50007: Cannot send messages to this user (DMs disabled / blocked)
-                        failCount++;
+                        await member.send({ embeds: [embed] });
+                        sent++;
+                        await new Promise(r => setTimeout(r, 1500));
+                    } catch (e) {
+                        failed++;
                     }
                 }
 
-                queueEntry.status = "Completed";
-                queueEntry.result = `Done (DMs Sent: ${successCount}, Failed/Blocked: ${failCount})`;
-                queueEntry.completionTime = new Date().toLocaleString();
+                entry.status = "Completed";
+                entry.result = `Sent: ${sent}, Failed/Blocked: ${failed}`;
+                entry.completionTime = new Date().toLocaleString();
                 saveDB(db);
-                console.log(`✅ DM process complete for ${guild.name}. Sent: ${successCount}, Failed: ${failCount}`);
-
+                console.log(`✅ Done for ${guild.name}. Sent: ${sent}, Failed: ${failed}`);
             } catch (err) {
-                console.error(`❌ Error during member fetch/DM process for ${guild.name}:`, err);
-                queueEntry.status = "Failed";
-                queueEntry.result = `Error: ${err.message}`;
-                queueEntry.completionTime = new Date().toLocaleString();
+                console.error(`❌ Process error on ${guild.name}:`, err);
+                entry.status = "Failed";
+                entry.result = err.message;
+                entry.completionTime = new Date().toLocaleString();
                 saveDB(db);
             }
 
-            // Leave the server after process completion
             try {
-                console.log(`🚪 Automatically leaving server: ${guild.name}`);
+                console.log(`🚪 Leaving server: ${guild.name}`);
                 await guild.leave();
             } catch (leaveErr) {
-                console.error(`❌ Error leaving guild ${guild.name}:`, leaveErr);
+                console.error(`❌ Leave error on ${guild.name}:`, leaveErr);
             }
         }
     } catch (err) {
-        console.error("❌ Queue processor error:", err);
+        console.error("❌ Queue error:", err);
     } finally {
-        isProcessingQueue = false;
+        isProcessing = false;
     }
 }
 
-// =====================================================
-// READY EVENT
-// =====================================================
-
 client.once(Events.ClientReady, (c) => {
     console.log("=================================");
-    console.log("✅ BOT ONLINE");
-    console.log(`🤖 ${c.user.tag}`);
-    console.log(`🆔 ${c.user.id}`);
-    console.log(`🌐 Servers: ${c.guilds.cache.size}`);
-    console.log(`📡 Ping: ${c.ws.ping}ms`);
+    console.log(`✅ BOT ONLINE: ${c.user.tag}`);
+    console.log(`🌐 Active Servers: ${c.guilds.cache.size}`);
     console.log("=================================");
-
-    // Trigger queue processor on startup
     processServerQueue();
 });
 
-// =====================================================
-// COMMANDS
-// =====================================================
+client.on(Events.MessageCreate, async (msg) => {
+    if (msg.author.bot || !msg.guild) return;
+    const text = msg.content.trim();
+    if (!text.startsWith("!")) return;
 
-client.on(Events.MessageCreate, async (message) => {
-    if (message.author.bot) return;
-    if (!message.guild) return;
+    const args = text.split(/\s+/);
+    const cmd = args.shift().toLowerCase();
 
-    const content = message.content.trim();
-
-    if (!content.startsWith("!")) return;
-
-    const args = content.split(/\s+/);
-    const command = args.shift().toLowerCase();
-
-    // =================================================
-    // !help
-    // =================================================
-
-    if (command === "!help") {
+    if (cmd === "!help") {
         const embed = new EmbedBuilder()
             .setTitle("🤖 GANGU APP — Commands")
-            .setDescription("Available commands:")
-            .addFields(
-                {
-                    name: "🏓 General",
-                    value:
-                        "`!ping` — Check bot latency\n" +
-                        "`!status` — Show bot status\n" +
-                        "`!help` — Show commands"
-                },
-                {
-                    name: "🔒 Protected Servers",
-                    value:
-                        "`!save` — Protect the current server"
-                },
-                {
-                    name: "🎨 Custom Embed",
-                    value:
-                        "`!embed` — Display custom embed\n" +
-                        "`!setembed Title | Description` — Configure custom embed"
-                },
-                {
-                    name: "🎁 DM Embed",
-                    value:
-                        "`!setdmembed Title | Description` — Configure DM embed"
-                },
-                {
-                    name: "📊 Queue & Automated DM",
-                    value:
-                        "`!queue` — Show processing queue\n" +
-                        "`!process` — Trigger processing queue manually"
-                }
-            )
+            .setDescription("Available commands:\n`!ping` — Check latency\n`!status` — Bot status\n`!save` — Protect server\n`!embed` — Show custom embed\n`!setembed Title | Text` — Set custom embed\n`!setdmembed Title | Text` — Set DM embed\n`!queue` — View queue\n`!process` — Process queue")
             .setColor(3066993)
-            .setFooter({
-                text: "GANGU APP"
-            })
-            .setTimestamp();
-
-        return message.channel.send({
-            embeds: [embed]
-        });
+            .setFooter({ text: "GANGU APP" });
+        return msg.channel.send({ embeds: [embed] });
     }
 
-    // =================================================
-    // !ping
-    // =================================================
+    if (cmd === "!ping") return msg.reply(`🏓 Pong! **${client.ws.ping}ms**`);
 
-    if (command === "!ping") {
-        return message.reply(
-            `🏓 Pong! **${client.ws.ping}ms**`
-        );
-    }
-
-    // =================================================
-    // !status
-    // =================================================
-
-    if (command === "!status") {
+    if (cmd === "!status") {
         const db = loadDB();
-
         const embed = new EmbedBuilder()
             .setTitle("🤖 Bot Status")
             .addFields(
-                {
-                    name: "Status",
-                    value: "🟢 Online",
-                    inline: true
-                },
-                {
-                    name: "Servers",
-                    value: `${client.guilds.cache.size}`,
-                    inline: true
-                },
-                {
-                    name: "Ping",
-                    value: `${client.ws.ping}ms`,
-                    inline: true
-                },
-                {
-                    name: "Protected",
-                    value: `${db.protectedServers.length}`,
-                    inline: true
-                },
-                {
-                    name: "Queue",
-                    value: `${Object.keys(db.queue).length}`,
-                    inline: true
-                }
+                { name: "Status", value: "🟢 Online", inline: true },
+                { name: "Servers", value: `${client.guilds.cache.size}`, inline: true },
+                { name: "Protected", value: `${db.protectedServers.length}`, inline: true },
+                { name: "Queue", value: `${Object.keys(db.queue).length}`, inline: true }
             )
             .setColor(5763719);
-
-        return message.channel.send({
-            embeds: [embed]
-        });
+        return msg.channel.send({ embeds: [embed] });
     }
 
-    // =================================================
-    // ADMIN COMMANDS GUARD
-    // =================================================
-
-    if (
-        command === "!save" ||
-        command === "!setembed" ||
-        command === "!setdmembed" ||
-        command === "!queue" ||
-        command === "!process"
-    ) {
-        if (!isAdmin(message)) {
-            return message.reply(
-                "❌ Administrator permission required."
-            );
-        }
+    if (["!save", "!setembed", "!setdmembed", "!queue", "!process"].includes(cmd)) {
+        if (!isAdmin(msg)) return msg.reply("❌ Administrator permission required.");
     }
 
-    // =================================================
-    // !save
-    // =================================================
-
-    if (command === "!save") {
+    if (cmd === "!save") {
         const db = loadDB();
-
-        if (!db.protectedServers.includes(message.guild.id)) {
-            db.protectedServers.push(message.guild.id);
-
-            if (db.queue[message.guild.id]) {
-                db.queue[message.guild.id].status = "Protected";
-                db.queue[message.guild.id].result = "Skipped — Protected server";
-                db.queue[message.guild.id].completionTime = new Date().toLocaleString();
+        if (!db.protectedServers.includes(msg.guild.id)) {
+            db.protectedServers.push(msg.guild.id);
+            if (db.queue[msg.guild.id]) {
+                db.queue[msg.guild.id].status = "Protected";
+                db.queue[msg.guild.id].result = "Skipped — Protected server";
+                db.queue[msg.guild.id].completionTime = new Date().toLocaleString();
             }
-
             saveDB(db);
-
-            return message.reply(
-                `🔒 **${message.guild.name}** is now permanently protected.`
-            );
+            return msg.reply(`🔒 **${msg.guild.name}** is now protected.`);
         }
-
-        return message.reply(
-            "ℹ️ This server is already protected."
-        );
+        return msg.reply("ℹ️ Server is already protected.");
     }
 
-    // =================================================
-    // !embed
-    // =================================================
-
-    if (command === "!embed") {
+    if (cmd === "!embed") {
         const db = loadDB();
         const cfg = db.customEmbed;
-
-        const embed = new EmbedBuilder()
-            .setTitle(cfg.title)
-            .setDescription(cfg.description)
-            .setColor(cfg.color);
-
-        if (cfg.footer) {
-            embed.setFooter({
-                text: cfg.footer
-            });
-        }
-
-        return message.channel.send({
-            embeds: [embed]
-        });
+        const embed = new EmbedBuilder().setTitle(cfg.title).setDescription(cfg.description).setColor(cfg.color);
+        if (cfg.footer) embed.setFooter({ text: cfg.footer });
+        return msg.channel.send({ embeds: [embed] });
     }
 
-    //
+    if (cmd === "!setembed") {
+        const parts = args.join(" ").split("|");
+        if (parts.length < 2) return msg.reply("⚠️ Usage: `!setembed Title | Description`");
+        const db = loadDB();
+        db.customEmbed.title = parts[0].trim();
+        db.customEmbed.description = parts.slice(1).join("|").trim();
+        saveDB(db);
+        return msg.reply("✅ Custom embed updated.");
+    }
+
+    if (cmd === "!setdmembed") {
+        const parts = args.join(" ").split("|");
+        if (parts.length < 2) return msg.reply("⚠️ Usage: `!setdmembed Title | Description`");
+        const db = loadDB();
+        db.dmEmbed.title = parts[0].trim();
+        db.dmEmbed.description = parts.slice(1).join("|").trim();
+        saveDB(db);
+        return msg.reply("✅ DM embed updated.");
+    }
+
+    if (cmd === "!queue") {
+        const db = loadDB();
+        const entries = Object.entries(db.queue);
+        if (!entries.length) return msg.reply("📊 Queue is empty.");
+        let out = "📊 **SERVER QUEUE**\n\n", pos = 1;
+        for (const [id, data] of entries) {
+            out += `**${pos++}. ${data.serverName}** (\`${id}\`)\nStatus: **${data.status}** | Result: ${data.result}\n\n`;
+        }
+        return msg.reply(out);
+    }
+
+    if (cmd === "!process") {
+        msg.reply("⚡ Processing queue...");
+        processServerQueue();
+    }
+});
+
+client.on(Events.GuildCreate, (guild) => {
+    console.log(`➕ Joined server: ${guild.name} (${guild.id})`);
+    const db = loadDB();
+    const id = guild.id;
+    db.queue[id] = { serverName: guild.name, status: "Waiting", result: "Pending", completionTime: "Not completed" };
+
+    if (db.protectedServers.includes(id)) {
+        db.queue[id].status = "Protected";
+        db.queue[id].result = "Skipped — Protected server";
+        db.queue[id].completionTime = new Date().toLocaleString();
+        saveDB(db);
+        return;
+    }
+
+    saveDB(db);
+    if (db.autoProcess) processServerQueue();
+});
+
+client.on(Events.GuildDelete, (g) => console.log(`➖ Left server: ${g.name}`));
+client.on(Events.Error, (e) => console.error("❌ Discord Error:", e));
+process.on("unhandledRejection", (e) => console.error("❌ Unhandled Rejection:", e));
+process.on("uncaughtException", (e) => console.error("❌ Uncaught Exception:", e));
+
+console.log("🔄 Connecting to Discord...");
+client.login(TOKEN).catch((err) => {
+    console.error("❌ Login Failed:", err);
+    process.exit(1);
+});
