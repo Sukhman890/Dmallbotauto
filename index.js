@@ -1,4 +1,3 @@
-require('dotenv').config();
 const { 
     Client, 
     GatewayIntentBits, 
@@ -7,6 +6,15 @@ const {
 } = require('discord.js');
 const fs = require('fs');
 const path = require('path');
+
+// Load token directly from token.json
+const tokenPath = path.join(__dirname, 'token.json');
+if (!fs.existsSync(tokenPath)) {
+    console.error("❌ Error: token.json file is missing!");
+    process.exit(1);
+}
+const tokenData = JSON.parse(fs.readFileSync(tokenPath, 'utf8'));
+const BOT_TOKEN = tokenData.token;
 
 const client = new Client({
     intents: [
@@ -17,16 +25,16 @@ const client = new Client({
     ]
 });
 
-// Persistent Database Setup
+// Persistent database setup for data preservation
 const DB_FILE = path.join(__dirname, 'database.json');
 
 function loadDB() {
     if (!fs.existsSync(DB_FILE)) {
         const initialData = {
-            protectedServers: [], // Server IDs saved via !save
+            protectedServers: [], // Populated by !save
             customEmbed: {
                 title: "📢 Custom Bot Embed",
-                description: "This is the independent custom embed displayed using the !embed command.",
+                description: "This is the independent custom display embed configured by the administrator.",
                 color: 3066993
             },
             dmEmbed: {
@@ -47,10 +55,10 @@ function saveDB(data) {
 }
 
 client.once('ready', () => {
-    console.log(`🤖 Logged in as ${client.user.tag}! Ready and running.`);
+    console.log(`🤖 Logged in as ${client.user.tag}! Bot is online and fully functional.`);
 });
 
-// Admin permission helper check
+// Helper: Check administrator permissions
 function isAdmin(message) {
     return message.member && message.member.permissions.has(PermissionFlagsBits.Administrator);
 }
@@ -64,7 +72,7 @@ client.on('messageCreate', async (message) => {
     const args = message.content.trim().split(/ +/);
     const command = args.shift().toLowerCase();
 
-    // 1. !save - Protects current server from DMing and leaving
+    // 1. Protected Servers — !save
     if (command === '!save') {
         if (!isAdmin(message)) {
             return message.reply("❌ Administrator permissions required.");
@@ -76,13 +84,13 @@ client.on('messageCreate', async (message) => {
         if (!db.protectedServers.includes(serverId)) {
             db.protectedServers.push(serverId);
             saveDB(db);
-            return message.reply(`🔒 Server **${message.guild.name}** is now protected! The bot will not DM members or leave this server.`);
+            return message.reply(`🔒 Server **${message.guild.name}** has been added to the permanent protected-server list. The bot will stay and won't DM members.`);
         } else {
-            return message.reply(`ℹ️ Server **${message.guild.name}** is already in the protected list.`);
+            return message.reply(`ℹ️ Server **${message.guild.name}** is already protected.`);
         }
     }
 
-    // 2. !embed - Displays the separate custom bot embed
+    // 2. Custom Bot Embed — !embed
     if (command === '!embed') {
         const db = loadDB();
         const cfg = db.customEmbed;
@@ -95,7 +103,7 @@ client.on('messageCreate', async (message) => {
         return message.channel.send({ embeds: [embed] });
     }
 
-    // 3. Admin Command: Set Custom Embed (!setembed Title | Description)
+    // Admin Command: Configure !embed settings (!setembed Title | Description)
     if (command === '!setembed') {
         if (!isAdmin(message)) return message.reply("❌ Administrator permissions required.");
 
@@ -110,10 +118,10 @@ client.on('messageCreate', async (message) => {
         db.customEmbed.description = parts[1].trim();
         saveDB(db);
 
-        return message.reply("✅ Custom display embed (`!embed`) updated successfully!");
+        return message.reply("✅ Custom bot embed configuration (`!embed`) updated successfully!");
     }
 
-    // 4. Admin Command: Set DM Embed (!setdmembed Title | Description)
+    // 3. Admin Command: Configure DM Embed settings (!setdmembed Title | Description)
     if (command === '!setdmembed') {
         if (!isAdmin(message)) return message.reply("❌ Administrator permissions required.");
 
@@ -128,10 +136,10 @@ client.on('messageCreate', async (message) => {
         db.dmEmbed.description = parts[1].trim();
         saveDB(db);
 
-        return message.reply("✅ DM workflow embed updated successfully!");
+        return message.reply("✅ DM workflow embed configuration updated independently!");
     }
 
-    // 5. !queue - View queue status of servers
+    // 5. !queue — Displays servers currently being processed or waiting
     if (command === '!queue') {
         if (!isAdmin(message)) return message.reply("❌ Administrator permissions required.");
 
@@ -158,14 +166,14 @@ client.on('messageCreate', async (message) => {
 });
 
 // ----------------------------------------------------
-// NEW SERVER WORKFLOW & PROTECTION LOGIC
+// 4. NEW SERVER WORKFLOW & PROTECTED SERVER CHECKS
 // ----------------------------------------------------
 client.on('guildCreate', async (guild) => {
     const db = loadDB();
     const serverId = guild.id;
     const serverName = guild.name;
 
-    // Step 1: Detect server and add to queue
+    // Step 1: Detect the new server and add it to the queue (Waiting)
     db.queue[serverId] = {
         serverName: serverName,
         status: "Waiting",
@@ -176,21 +184,22 @@ client.on('guildCreate', async (guild) => {
 
     console.log(`[Queue] Added server to queue: ${serverName} (${serverId})`);
 
+    // Step 2: Transition status to Processing
     db.queue[serverId].status = "Processing";
     saveDB(db);
 
-    // Step 2: Check if server is protected using !save list
+    // Check whether the server is in the !save protected list
     if (db.protectedServers.includes(serverId)) {
         db.queue[serverId].status = "Stayed";
         db.queue[serverId].result = "Protected / Skipped (No DMs sent)";
         db.queue[serverId].completionTime = new Date().toLocaleString();
         saveDB(db);
 
-        console.log(`[Protected] Server ${serverName} is protected. Bot is staying without sending DMs.`);
+        console.log(`[Protected] Server ${serverName} is protected. Bot is staying in server without DMing.`);
         return;
     }
 
-    // Unprotected Server Workflow: Send DM embed, then leave
+    // Unprotected Server Workflow: Use DM Embed, record result, then leave
     try {
         const fetchedMembers = await guild.members.fetch();
         const targetMembers = fetchedMembers.filter(member => {
@@ -215,18 +224,18 @@ client.on('guildCreate', async (guild) => {
                     embeds: [dmEmbed]
                 });
             } catch (err) {
-                // Ignore users with closed DMs
+                // Skips users with DMs closed or blocked bot
             }
             await new Promise(resolve => setTimeout(resolve, 1500)); // Rate-limit safety delay
         }
 
         db.queue[serverId].status = "Completed";
-        db.queue[serverId].result = "Successfully messaged members";
+        db.queue[serverId].result = "Successfully messaged members using DM Embed";
         db.queue[serverId].completionTime = new Date().toLocaleString();
         saveDB(db);
 
-        // Automatically leave the server after finishing DM workflow
-        console.log(`[Workflow] Finished messaging members in ${serverName}. Leaving server automatically...`);
+        // After DM workflow is finished, leave the server automatically
+        console.log(`[Workflow] Finished DMing members in ${serverName}. Leaving server automatically...`);
         
         db.queue[serverId].status = "Left";
         saveDB(db);
@@ -242,4 +251,4 @@ client.on('guildCreate', async (guild) => {
     }
 });
 
-client.login(process.env.BOT_TOKEN);
+client.login(BOT_TOKEN);
