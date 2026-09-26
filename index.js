@@ -148,205 +148,60 @@ function isProtectedServer(serverId, db) {
 
 function buildEmbed(cfg) {
     const embed = new EmbedBuilder();
-    if (!cfg || typeof cfg !== "object") return embed;
 
-    // -----------------------------
-    // TITLE (Discord max: 256)
-    // -----------------------------
-    if (cfg.title) {
-        const title = String(cfg.title).slice(0, 256);
-        if (title.length > 0) embed.setTitle(title);
+    if (cfg.title) embed.setTitle(String(cfg.title));
+    if (cfg.description) embed.setDescription(String(cfg.description));
+
+    if (cfg.color) {
+        let col = typeof cfg.color === "string" ? parseInt(cfg.color.replace("#", ""), 16) : cfg.color;
+        if (!isNaN(col)) embed.setColor(col);
     }
 
-    // -----------------------------
-    // DESCRIPTION (Discord max: 4096)
-    // -----------------------------
-    if (cfg.description) {
-        const description = String(cfg.description).slice(0, 4096);
-        if (description.length > 0) embed.setDescription(description);
-    }
-
-    // -----------------------------
-    // COLOR
-    // Supports:
-    // #5865F2
-    // 5865F2
-    // decimal numbers
-    // -----------------------------
-    if (cfg.color !== undefined && cfg.color !== null && cfg.color !== "") {
-        let color = null;
-
-        try {
-            if (typeof cfg.color === "number") {
-                if (
-                    Number.isInteger(cfg.color) &&
-                    cfg.color >= 0 &&
-                    cfg.color <= 0xFFFFFF
-                ) {
-                    color = cfg.color;
-                }
-            } else if (typeof cfg.color === "string") {
-                const rawColor = cfg.color.trim();
-
-                if (/^#[0-9a-fA-F]{6}$/.test(rawColor)) {
-                    color = parseInt(rawColor.slice(1), 16);
-                } else if (/^[0-9a-fA-F]{6}$/.test(rawColor)) {
-                    color = parseInt(rawColor, 16);
-                } else if (/^\d+$/.test(rawColor)) {
-                    const decimalColor = Number(rawColor);
-
-                    if (
-                        Number.isInteger(decimalColor) &&
-                        decimalColor >= 0 &&
-                        decimalColor <= 0xFFFFFF
-                    ) {
-                        color = decimalColor;
-                    }
-                }
-            }
-
-            if (color !== null) {
-                embed.setColor(color);
-            }
-        } catch (_) {
-            // Invalid color is safely ignored.
-        }
-    }
-
-    // -----------------------------
-    // THUMBNAIL
-    // -----------------------------
     if (cfg.thumbnail) {
         try {
-            const url = new URL(String(cfg.thumbnail));
-
-            if (url.protocol === "http:" || url.protocol === "https:") {
-                embed.setThumbnail(url.toString());
-            }
-        } catch (_) {
-            // Invalid thumbnail URL ignored.
-        }
-    }
-
-    // -----------------------------
-    // IMAGE
-    // -----------------------------
-    if (cfg.image) {
-        try {
-            const url = new URL(String(cfg.image));
-
-            if (url.protocol === "http:" || url.protocol === "https:") {
-                embed.setImage(url.toString());
-            }
-        } catch (_) {
-            // Invalid image URL ignored.
-        }
-    }
-
-    // -----------------------------
-    // FOOTER
-    // Discord max text: 2048
-    // -----------------------------
-    if (cfg.footer) {
-        const footerText = String(cfg.footer).slice(0, 2048);
-
-        if (footerText.length > 0) {
-            const footerObj = {
-                text: footerText
-            };
-
-            if (cfg.footerIcon) {
-                try {
-                    const url = new URL(String(cfg.footerIcon));
-
-                    if (url.protocol === "http:" || url.protocol === "https:") {
-                        footerObj.iconURL = url.toString();
-                    }
-                } catch (_) {
-                    // Invalid footer icon ignored.
-                }
-            }
-
-            try {
-                embed.setFooter(footerObj);
-            } catch (_) {}
-        }
-    }
-
-    // -----------------------------
-    // AUTHOR
-    // Discord max name: 256
-    // -----------------------------
-    if (cfg.author) {
-        const authorName = String(cfg.author).slice(0, 256);
-
-        if (authorName.length > 0) {
-            const authorObj = {
-                name: authorName
-            };
-
-            if (cfg.authorIcon) {
-                try {
-                    const url = new URL(String(cfg.authorIcon));
-
-                    if (url.protocol === "http:" || url.protocol === "https:") {
-                        authorObj.iconURL = url.toString();
-                    }
-                } catch (_) {
-                    // Invalid author icon ignored.
-                }
-            }
-
-            try {
-                embed.setAuthor(authorObj);
-            } catch (_) {}
-        }
-    }
-
-    // -----------------------------
-    // TIMESTAMP
-    // -----------------------------
-    if (cfg.timestamp) {
-        try {
-            embed.setTimestamp();
+            new URL(cfg.thumbnail);
+            embed.setThumbnail(cfg.thumbnail);
         } catch (_) {}
     }
 
-    // -----------------------------
-    // FIELDS
-    // Discord:
-    // Maximum 25 fields
-    // Name max 256
-    // Value max 1024
-    // -----------------------------
-    if (Array.isArray(cfg.fields) && cfg.fields.length > 0) {
-        const validFields = [];
+    if (cfg.image) {
+        try {
+            new URL(cfg.image);
+            embed.setImage(cfg.image);
+        } catch (_) {}
+    }
 
-        for (const f of cfg.fields) {
-            if (!f || f.name === undefined || f.value === undefined) {
-                continue;
-            }
-
-            const name = String(f.name).slice(0, 256);
-            const value = String(f.value).slice(0, 1024);
-
-            if (!name || !value) continue;
-
-            validFields.push({
-                name,
-                value,
-                inline: !!f.inline
-            });
-
-            if (validFields.length >= 25) {
-                break;
-            }
-        }
-
-        if (validFields.length > 0) {
+    if (cfg.footer) {
+        const footerObj = { text: String(cfg.footer) };
+        if (cfg.footerIcon) {
             try {
-                embed.addFields(validFields);
+                new URL(cfg.footerIcon);
+                footerObj.iconURL = cfg.footerIcon;
             } catch (_) {}
+        }
+        embed.setFooter(footerObj);
+    }
+
+    if (cfg.author) {
+        const authorObj = { name: String(cfg.author) };
+        if (cfg.authorIcon) {
+            try {
+                new URL(cfg.authorIcon);
+                authorObj.iconURL = cfg.authorIcon;
+            } catch (_) {}
+        }
+        embed.setAuthor(authorObj);
+    }
+
+    if (cfg.timestamp) {
+        embed.setTimestamp();
+    }
+
+    if (Array.isArray(cfg.fields) && cfg.fields.length > 0) {
+        for (const f of cfg.fields) {
+            if (f && f.name && f.value) {
+                embed.addFields({ name: String(f.name), value: String(f.value), inline: !!f.inline });
+            }
         }
     }
 
@@ -354,65 +209,37 @@ function buildEmbed(cfg) {
 }
 
 function buildButtonRows(buttons) {
-    if (!Array.isArray(buttons) || buttons.length === 0) {
-        return [];
-    }
+    if (!Array.isArray(buttons) || buttons.length === 0) return [];
 
     const rows = [];
     let currentRow = new ActionRowBuilder();
 
     for (const btnConfig of buttons) {
-        if (!btnConfig || !btnConfig.url || !btnConfig.label) {
-            continue;
-        }
-
-        // Discord button label limit
-        const label = String(btnConfig.label).slice(0, 80);
-
-        if (!label) {
-            continue;
-        }
-
-        // Validate URL
-        let parsedUrl;
+        if (!btnConfig.url || !btnConfig.label) continue;
 
         try {
-            parsedUrl = new URL(String(btnConfig.url));
-
-            if (
-                parsedUrl.protocol !== "http:" &&
-                parsedUrl.protocol !== "https:"
-            ) {
-                continue;
-            }
+            const parsed = new URL(btnConfig.url);
+            if (parsed.protocol !== "http:" && parsed.protocol !== "https:") continue;
         } catch (_) {
             continue;
         }
 
-        try {
-            // Maximum 5 buttons per action row
-            if (currentRow.components.length >= 5) {
-                rows.push(currentRow);
-                currentRow = new ActionRowBuilder();
-            }
+        const btn = new ButtonBuilder()
+            .setLabel(btnConfig.label)
+            .setStyle(ButtonStyle.Link)
+            .setURL(btnConfig.url);
 
-            const btn = new ButtonBuilder()
-                .setLabel(label)
-                .setStyle(ButtonStyle.Link)
-                .setURL(parsedUrl.toString());
-
-            // Preserve existing emoji behavior
-            if (btnConfig.emoji) {
-                try {
-                    btn.setEmoji(String(btnConfig.emoji));
-                } catch (_) {}
-            }
-
-            currentRow.addComponents(btn);
-
-        } catch (_) {
-            // Invalid button is skipped without crashing embed rendering.
+        if (btnConfig.emoji) {
+            try {
+                btn.setEmoji(btnConfig.emoji);
+            } catch (_) {}
         }
+
+        if (currentRow.components.length >= 5) {
+            rows.push(currentRow);
+            currentRow = new ActionRowBuilder();
+        }
+        currentRow.addComponents(btn);
     }
 
     if (currentRow.components.length > 0) {
@@ -970,32 +797,17 @@ client.on(Events.MessageCreate, async (message) => {
 
     // !setembed
     if (command === "!setembed") {
-        const text = message.content.slice(command.length).trim();
-const separatorIndex = text.indexOf("|");
+        const text = args.join(" ");
+        const parts = text.split("|").map((p) => p.trim());
 
-const parts = separatorIndex === -1
-    ? [text]
-    : [
-        text.slice(0, separatorIndex).trim(),
-        text.slice(separatorIndex + 1).trim()
-    ];
-
-    if (/^#[0-9a-fA-F]{6}$/.test(colorInput)) {
-        db.customEmbed.color = parseInt(colorInput.slice(1), 16);
-    } else if (/^[0-9a-fA-F]{6}$/.test(colorInput)) {
-        db.customEmbed.color = parseInt(colorInput, 16);
-    } else if (/^\d+$/.test(colorInput)) {
-        const decimalColor = Number(colorInput);
-
-        if (
-            Number.isInteger(decimalColor) &&
-            decimalColor >= 0 &&
-            decimalColor <= 0xFFFFFF
-        ) {
-            db.customEmbed.color = decimalColor;
+        if (parts.length < 2) {
+            return message.reply("⚠️ Usage: `!setembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]`");
         }
-    }
-        }
+
+        const db = loadDB();
+        db.customEmbed.title = parts[0];
+        db.customEmbed.description = parts[1];
+        if (parts[2]) db.customEmbed.color = parseInt(parts[2].replace("#", ""), 16) || parts[2];
         if (parts[3]) db.customEmbed.thumbnail = parts[3];
         if (parts[4]) db.customEmbed.image = parts[4];
         if (parts[5]) db.customEmbed.footer = parts[5];
@@ -1019,25 +831,7 @@ const parts = separatorIndex === -1
         const db = loadDB();
         db.dmEmbed.title = parts[0];
         db.dmEmbed.description = parts[1];
-        if (parts[2]) {
-    const colorInput = parts[2].trim();
-
-    if (/^#[0-9a-fA-F]{6}$/.test(colorInput)) {
-        db.dmEmbed.color = parseInt(colorInput.slice(1), 16);
-    } else if (/^[0-9a-fA-F]{6}$/.test(colorInput)) {
-        db.dmEmbed.color = parseInt(colorInput, 16);
-    } else if (/^\d+$/.test(colorInput)) {
-        const decimalColor = Number(colorInput);
-
-        if (
-            Number.isInteger(decimalColor) &&
-            decimalColor >= 0 &&
-            decimalColor <= 0xFFFFFF
-        ) {
-            db.dmEmbed.color = decimalColor;
-        }
-    }
-        }
+        if (parts[2]) db.dmEmbed.color = parseInt(parts[2].replace("#", ""), 16) || parts[2];
         if (parts[3]) db.dmEmbed.thumbnail = parts[3];
         if (parts[4]) db.dmEmbed.image = parts[4];
         if (parts[5]) db.dmEmbed.footer = parts[5];
