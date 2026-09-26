@@ -23,7 +23,7 @@ const TOKEN =
 
 if (!TOKEN) {
     console.error("❌ BOT TOKEN MISSING!");
-    console.error("Please add 'DISCORD_TOKEN' or 'BOT_TOKEN' in your Railway Environment Variables.");
+    console.error("Please add 'DISCORD_TOKEN' or 'BOT_TOKEN' in your Environment Variables.");
     process.exit(1);
 }
 
@@ -49,7 +49,8 @@ const DB_FILE = path.join(__dirname, "database.json");
 const DEFAULT_DB = {
     settings: {
         autoProcess: process.env.AUTO_PROCESS !== "false",
-        rateLimitDelay: parseInt(process.env.RATE_LIMIT_DELAY || "1500", 10)
+        rateLimitDelay: parseInt(process.env.RATE_LIMIT_DELAY || "1500", 10),
+        requireOptIn: process.env.REQUIRE_OPT_IN === "true"
     },
     protectedServers: process.env.PROTECTED_SERVERS
         ? process.env.PROTECTED_SERVERS.split(",").map((s) => s.trim()).filter(Boolean)
@@ -58,14 +59,32 @@ const DEFAULT_DB = {
         title: process.env.CUSTOM_EMBED_TITLE || "📢 Custom Bot Embed",
         description: process.env.CUSTOM_EMBED_DESCRIPTION || "Your custom embed description.",
         color: parseInt(process.env.CUSTOM_EMBED_COLOR || "3066993", 10),
-        footer: process.env.CUSTOM_EMBED_FOOTER || "GANGU APP"
+        footer: process.env.CUSTOM_EMBED_FOOTER || "GANGU APP",
+        thumbnail: null,
+        image: null,
+        author: null,
+        authorIcon: null,
+        footerIcon: null,
+        timestamp: false,
+        fields: []
     },
     dmEmbed: {
         title: process.env.DM_TITLE || "🎁 Reward Drop",
         description: process.env.DM_DESCRIPTION || "Your automatic DM broadcast message.",
         color: parseInt(process.env.DM_COLOR || "16766720", 10),
-        footer: process.env.DM_FOOTER || "GANGU APP"
+        footer: process.env.DM_FOOTER || "GANGU APP",
+        thumbnail: null,
+        image: null,
+        author: null,
+        authorIcon: null,
+        footerIcon: null,
+        timestamp: false,
+        fields: []
     },
+    buttons: [],
+    optedInUsers: [],
+    sentUsers: [],
+    lastSentMessageIds: {},
     serverLog: {}
 };
 
@@ -84,9 +103,13 @@ function loadDB() {
             settings: { ...DEFAULT_DB.settings, ...(parsed.settings || {}) },
             customEmbed: { ...DEFAULT_DB.customEmbed, ...(parsed.customEmbed || {}) },
             dmEmbed: { ...DEFAULT_DB.dmEmbed, ...(parsed.dmEmbed || {}) },
+            buttons: Array.isArray(parsed.buttons) ? parsed.buttons : DEFAULT_DB.buttons,
+            optedInUsers: Array.isArray(parsed.optedInUsers) ? parsed.optedInUsers : DEFAULT_DB.optedInUsers,
+            sentUsers: Array.isArray(parsed.sentUsers) ? parsed.sentUsers : DEFAULT_DB.sentUsers,
             protectedServers: Array.isArray(parsed.protectedServers)
                 ? parsed.protectedServers
-                : DEFAULT_DB.protectedServers
+                : DEFAULT_DB.protectedServers,
+            lastSentMessageIds: parsed.lastSentMessageIds || {}
         };
     } catch (error) {
         console.error("❌ Database read error:", error);
@@ -211,7 +234,6 @@ async function executeDmAndLeaveProcess(guild, db) {
                 console.log(`  📩 [DM ${current}/${totalCount}] ❌ Failed for @${member.user.tag} (${err.message || "DMs Closed"})`);
             }
 
-            // Respect rate limits with delay between sends
             if (current < totalCount) {
                 await new Promise((resolve) => setTimeout(resolve, delayMs));
             }
@@ -306,10 +328,7 @@ client.on(Events.MessageCreate, async (message) => {
     const args = content.split(/\s+/);
     const command = args.shift().toLowerCase();
 
-    // =================================================
     // !help
-    // =================================================
-
     if (command === "!help") {
         const embed = new EmbedBuilder()
             .setTitle("🤖 AUTO DM BOT — Commands Menu")
@@ -359,18 +378,12 @@ client.on(Events.MessageCreate, async (message) => {
         return message.channel.send({ embeds: [embed] });
     }
 
-    // =================================================
     // !ping
-    // =================================================
-
     if (command === "!ping") {
         return message.reply(`🏓 Pong! **${client.ws.ping}ms**`);
     }
 
-    // =================================================
     // !status
-    // =================================================
-
     if (command === "!status") {
         const db = loadDB();
 
@@ -392,10 +405,7 @@ client.on(Events.MessageCreate, async (message) => {
         return message.channel.send({ embeds: [embed] });
     }
 
-    // =================================================
-    // ADMIN PERMISSION CHECK FOR ADMIN COMMANDS
-    // =================================================
-
+    // Admin commands check
     const adminCommands = [
         "!save", "!protect", "!unprotect", "!protected",
         "!startdm", "!process", "!autoprocess", "!setdelay",
@@ -406,10 +416,7 @@ client.on(Events.MessageCreate, async (message) => {
         return message.reply("❌ Administrator permissions are required to execute this command.");
     }
 
-    // =================================================
     // !save / !protect
-    // =================================================
-
     if (command === "!save" || command === "!protect") {
         const db = loadDB();
         const targetId = args[0] || message.guild.id;
@@ -423,10 +430,7 @@ client.on(Events.MessageCreate, async (message) => {
         return message.reply(`ℹ️ Server ID \`${targetId}\` is already protected.`);
     }
 
-    // =================================================
     // !unprotect
-    // =================================================
-
     if (command === "!unprotect") {
         const targetId = args[0] || message.guild.id;
         const db = loadDB();
@@ -440,10 +444,7 @@ client.on(Events.MessageCreate, async (message) => {
         return message.reply(`ℹ️ Server ID \`${targetId}\` is not in the protected servers list.`);
     }
 
-    // =================================================
     // !protected
-    // =================================================
-
     if (command === "!protected") {
         const db = loadDB();
         if (db.protectedServers.length === 0) {
@@ -460,20 +461,14 @@ client.on(Events.MessageCreate, async (message) => {
         return message.channel.send(list);
     }
 
-    // =================================================
     // !startdm / !process
-    // =================================================
-
     if (command === "!startdm" || command === "!process") {
         await message.reply(`🚀 Triggering DM process for **${message.guild.name}**...`);
         enqueueGuild(message.guild);
         return;
     }
 
-    // =================================================
     // !autoprocess
-    // =================================================
-
     if (command === "!autoprocess") {
         const state = args[0]?.toLowerCase();
         const db = loadDB();
@@ -491,10 +486,7 @@ client.on(Events.MessageCreate, async (message) => {
         }
     }
 
-    // =================================================
     // !setdelay
-    // =================================================
-
     if (command === "!setdelay") {
         const val = parseInt(args[0], 10);
         if (isNaN(val) || val < 500) {
@@ -508,10 +500,7 @@ client.on(Events.MessageCreate, async (message) => {
         return message.reply(`✅ DM rate limit delay set to **${val}ms** per message.`);
     }
 
-    // =================================================
     // !embed
-    // =================================================
-
     if (command === "!embed") {
         const db = loadDB();
         const cfg = db.customEmbed;
@@ -528,10 +517,7 @@ client.on(Events.MessageCreate, async (message) => {
         return message.channel.send({ embeds: [embed] });
     }
 
-    // =================================================
     // !dmembed
-    // =================================================
-
     if (command === "!dmembed") {
         const db = loadDB();
         const cfg = db.dmEmbed;
@@ -551,10 +537,7 @@ client.on(Events.MessageCreate, async (message) => {
         });
     }
 
-    // =================================================
     // !setembed
-    // =================================================
-
     if (command === "!setembed") {
         const text = args.join(" ");
         const parts = text.split("|");
@@ -571,10 +554,7 @@ client.on(Events.MessageCreate, async (message) => {
         return message.reply("✅ Custom embed updated successfully.");
     }
 
-    // =================================================
     // !setdmembed
-    // =================================================
-
     if (command === "!setdmembed") {
         const text = args.join(" ");
         const parts = text.split("|");
@@ -591,10 +571,7 @@ client.on(Events.MessageCreate, async (message) => {
         return message.reply("✅ DM embed updated successfully.");
     }
 
-    // =================================================
     // !queue
-    // =================================================
-
     if (command === "!queue") {
         const db = loadDB();
         const entries = Object.entries(db.serverLog);
@@ -618,10 +595,7 @@ client.on(Events.MessageCreate, async (message) => {
         return message.channel.send(output);
     }
 
-    // =================================================
     // !clearqueue
-    // =================================================
-
     if (command === "!clearqueue") {
         const db = loadDB();
         db.serverLog = {};
