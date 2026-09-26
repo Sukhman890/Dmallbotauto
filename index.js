@@ -820,32 +820,147 @@ client.on(Events.MessageCreate, async (message) => {
     }
 
     // !setdmembed
-    if (command === "!setdmembed") {
-        const text = args.join(" ");
-        const parts = text.split("|").map((p) => p.trim());
+if (command === "!setdmembed") {
+    const text = args.join(" ").trim();
 
-        if (parts.length < 2) {
-            return message.reply("⚠️ Usage: `!setdmembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]`");
-        }
-
-        const db = loadDB();
-        db.dmEmbed.title = parts[0];
-        db.dmEmbed.description = parts[1];
-        if (parts[2]) db.dmEmbed.color = parseInt(parts[2].replace("#", ""), 16) || parts[2];
-        if (parts[3]) db.dmEmbed.thumbnail = parts[3];
-        if (parts[4]) db.dmEmbed.image = parts[4];
-        if (parts[5]) db.dmEmbed.footer = parts[5];
-
-        saveDB(db);
-
-        const embed = buildEmbed(db.dmEmbed);
-        const buttonRows = buildButtonRows(db.buttons);
-        const payload = { content: "✅ DM embed updated successfully.", embeds: [embed] };
-        if (buttonRows.length > 0) payload.components = buttonRows;
-
-        await sendOrReplaceEmbedMessage(message.channel, payload, db);
-        return;
+    if (!text) {
+        return message.reply(
+            "⚠️ Usage:\n" +
+            "`!setdmembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]`"
+        );
     }
+
+    const db = loadDB();
+
+    let title = "";
+    let description = "";
+    let color = null;
+    let thumbnail = null;
+    let image = null;
+    let footer = null;
+
+    // =====================================================
+    // SUPPORT JSON EMBED INPUT
+    // Example:
+    // !setdmembed you won | {"description":"🎁 Congratulations!\\n\\nYou won $50"}
+    // =====================================================
+
+    const pipeParts = text.split("|").map((p) => p.trim());
+
+    title = pipeParts[0] || "";
+
+    let descriptionInput = pipeParts.slice(1).join(" | ").trim();
+
+    // If description is JSON, extract the actual description
+    if (
+        descriptionInput.startsWith("{") &&
+        descriptionInput.endsWith("}")
+    ) {
+        try {
+            const jsonData = JSON.parse(descriptionInput);
+
+            if (typeof jsonData.description === "string") {
+                description = jsonData.description;
+            } else {
+                description = descriptionInput;
+            }
+
+            // Optional JSON embed properties
+            if (jsonData.title) title = String(jsonData.title);
+            if (jsonData.color !== undefined) color = jsonData.color;
+            if (jsonData.thumbnail) thumbnail = jsonData.thumbnail;
+            if (jsonData.image) image = jsonData.image;
+            if (jsonData.footer) footer = jsonData.footer;
+
+        } catch (error) {
+            // If JSON is invalid, treat it as normal description
+            description = descriptionInput;
+        }
+    } else {
+        description = descriptionInput;
+    }
+
+    // Convert literal "\n" into real line breaks
+    description = String(description)
+        .replace(/\\n/g, "\n")
+        .replace(/\r\n/g, "\n");
+
+    // =====================================================
+    // NORMAL PIPE FORMAT
+    // =====================================================
+
+    if (pipeParts.length >= 3 && color === null) {
+        const parsedColor = parseInt(
+            pipeParts[2].replace("#", "").trim(),
+            16
+        );
+
+        if (!isNaN(parsedColor)) {
+            color = parsedColor;
+        }
+    }
+
+    if (pipeParts.length >= 4 && !thumbnail) {
+        thumbnail = pipeParts[3];
+    }
+
+    if (pipeParts.length >= 5 && !image) {
+        image = pipeParts[4];
+    }
+
+    if (pipeParts.length >= 6 && !footer) {
+        footer = pipeParts[5];
+    }
+
+    // =====================================================
+    // SAVE DM EMBED
+    // =====================================================
+
+    db.dmEmbed.title = title;
+    db.dmEmbed.description = description;
+
+    if (color !== null) {
+        db.dmEmbed.color = color;
+    }
+
+    if (thumbnail) {
+        db.dmEmbed.thumbnail = thumbnail;
+    }
+
+    if (image) {
+        db.dmEmbed.image = image;
+    }
+
+    if (footer) {
+        db.dmEmbed.footer = footer;
+    }
+
+    saveDB(db);
+
+    // =====================================================
+    // PREVIEW UPDATED DM EMBED
+    // =====================================================
+
+    const embed = buildEmbed(db.dmEmbed);
+    const buttonRows = buildButtonRows(db.buttons);
+
+    const payload = {
+        content: "✅ **DM embed updated successfully.**",
+        embeds: [embed]
+    };
+
+    if (buttonRows.length > 0) {
+        payload.components = buttonRows;
+    }
+
+    await sendOrReplaceEmbedMessage(
+        message.channel,
+        payload,
+        db
+    );
+
+    return;
+}
 
     // !addrecipient
     if (command === "!addrecipient") {
