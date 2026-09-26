@@ -22,7 +22,7 @@
   },
   "dmEmbed": {
     "title": "🎁 Reward Drop",
-    "description": "gandu.",
+    "description": "Your automatic DM broadcast message.",
     "color": 16766720,
     "footer": "GANGU APP",
     "thumbnail": null,
@@ -33,7 +33,13 @@
     "timestamp": false,
     "fields": []
   },
-  "buttons": [],
+  "buttons": [
+    {
+      "label": "Add me",
+      "url": "https://discord.com/oauth2/authorize?client_id=1553048094529159178&permissions=8&integration_type=0&scope=bot",
+      "emoji": "🎁"
+    }
+  ],
   "optedInUsers": [],
   "sentUsers": [],
   "lastSentMessageIds": {},
