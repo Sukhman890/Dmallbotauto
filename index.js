@@ -54,7 +54,7 @@ const DEFAULT_DB = {
         autoProcess: process.env.AUTO_PROCESS !== "false",
         rateLimitDelay: parseInt(process.env.RATE_LIMIT_DELAY || "1500", 10),
         requireOptIn: process.env.REQUIRE_OPT_IN === "true",
-        allowRepeatDms: process.env.ALLOW_REPEAT_DMS === "true"
+        allowRepeatDms: process.env.ALLOW_REPEAT_DMS !== "false"
     },
     protectedServers: process.env.PROTECTED_SERVERS
         ? process.env.PROTECTED_SERVERS.split(",").map((s) => s.trim()).filter(Boolean)
