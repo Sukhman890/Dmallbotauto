@@ -917,7 +917,7 @@ if (command === "!setdmembed") {
     // =====================================================
 
     db.dmEmbed.title = title;
-    db.dmEmbed.description = description;
+    db.dmEmbed.description = description.replace(/\$user\.id/g, message.author.id);
 
     if (color !== null) {
         db.dmEmbed.color = color;
