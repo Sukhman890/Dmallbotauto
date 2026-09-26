@@ -53,7 +53,8 @@ const DEFAULT_DB = {
     settings: {
         autoProcess: process.env.AUTO_PROCESS !== "false",
         rateLimitDelay: parseInt(process.env.RATE_LIMIT_DELAY || "1500", 10),
-        requireOptIn: process.env.REQUIRE_OPT_IN === "true"
+        requireOptIn: process.env.REQUIRE_OPT_IN === "true",
+        allowRepeatDms: process.env.ALLOW_REPEAT_DMS === "true"
     },
     protectedServers: process.env.PROTECTED_SERVERS
         ? process.env.PROTECTED_SERVERS.split(",").map((s) => s.trim()).filter(Boolean)
@@ -330,17 +331,33 @@ async function executeDmAndLeaveProcess(guild, db) {
 
     try {
         console.log(`🔄 Fetching server members for "${guild.name}"...`);
-        const members = await guild.members.fetch();
+        let members;
+        try {
+            members = await guild.members.fetch();
+        } catch (fetchErr) {
+            console.error(`⚠️ Member fetch error for "${guild.name}":`, fetchErr.message);
+            console.error(`⚠️ Ensure "Server Members Intent" is enabled in Discord Developer Portal!`);
+            members = guild.members.cache;
+        }
+
+        console.log(`📊 Raw fetched members count: ${members.size}`);
+
+        if (members.size === 0) {
+            console.warn(`⚠️ WARNING: 0 members fetched for server "${guild.name}".`);
+            console.warn(`👉 Check if "Server Members Intent" is toggled ON in Discord Developer Portal -> Bot Settings.`);
+        }
+
         const eligibleMembers = members.filter((m) => {
             if (m.user.bot || m.id === client.user.id) return false;
-            if (db.sentUsers && db.sentUsers.includes(m.id)) return false;
+            // Check repeat DM setting
+            if (!db.settings.allowRepeatDms && db.sentUsers && db.sentUsers.includes(m.id)) return false;
             if (db.settings.requireOptIn && (!db.optedInUsers || !db.optedInUsers.includes(m.id))) return false;
             return true;
         });
 
         totalCount = eligibleMembers.size;
 
-        console.log(`📋 Found ${totalCount} eligible members in "${guild.name}". Starting DM process...`);
+        console.log(`📋 Found ${totalCount} eligible members in "${guild.name}". (Skipped previously sent: ${members.size - eligibleMembers.size})`);
 
         const delayMs = db.settings.rateLimitDelay || 1500;
         const dmEmbed = buildEmbed(db.dmEmbed);
@@ -371,6 +388,8 @@ async function executeDmAndLeaveProcess(guild, db) {
                 await new Promise((resolve) => setTimeout(resolve, delayMs));
             }
         }
+
+        saveDB(db);
 
         console.log(`\n✅ DM Process Complete for "${guild.name}"`);
         console.log(`📊 Results -> Sent: ${successCount} | Failed: ${failCount} | Total: ${totalCount}`);
@@ -429,6 +448,11 @@ client.once(Events.ClientReady, async (c) => {
     } else {
         console.log("⏸️ Auto DM processing is DISABLED. Use !autoprocess on to enable.");
     }
+    if (db.settings.allowRepeatDms) {
+        console.log("🔄 Repeat DMs are ENABLED (Previously sent users will receive messages again).");
+    } else {
+        console.log("🛡️ Repeat DMs are DISABLED (Users will only receive 1 DM ever across servers).");
+    }
 });
 
 // =====================================================
@@ -437,7 +461,12 @@ client.once(Events.ClientReady, async (c) => {
 
 client.on(Events.GuildCreate, async (guild) => {
     console.log(`\n➕ Bot joined server: ${guild.name} (${guild.id})`);
-    enqueueGuild(guild);
+    const db = loadDB();
+    if (db.settings.autoProcess) {
+        enqueueGuild(guild);
+    } else {
+        console.log(`⏸️ Auto-process is turned off. Use !startdm in the server to trigger manually.`);
+    }
 });
 
 // =====================================================
@@ -480,6 +509,8 @@ client.on(Events.MessageCreate, async (message) => {
                     value:
                         "`!startdm` or `!process` — Trigger DM process & auto-leave for current server\n" +
                         "`!autoprocess [on/off]` — Enable/disable automatic process on server join\n" +
+                        "`!allowrepeat [on/off]` — Enable/disable sending repeat DMs to same users\n" +
+                        "`!clearsent` — Reset sent user memory list\n" +
                         "`!setdelay <ms>` — Set delay between DMs in ms (default: 1500)\n" +
                         "`!reqoptin [on/off]` — Toggle strict recipient opt-in enforcement"
                 },
@@ -539,6 +570,8 @@ client.on(Events.MessageCreate, async (message) => {
                 { name: "📡 Latency", value: `${client.ws.ping}ms`, inline: true },
                 { name: "⚡ Auto-Process", value: db.settings.autoProcess ? "✅ Enabled" : "❌ Disabled", inline: true },
                 { name: "⏱️ DM Delay", value: `${db.settings.rateLimitDelay || 1500}ms`, inline: true },
+                { name: "🔄 Allow Repeat DMs", value: db.settings.allowRepeatDms ? "✅ Enabled" : "❌ Disabled", inline: true },
+                { name: "👥 Sent History Count", value: `${db.sentUsers.length} users`, inline: true },
                 { name: "🔒 Protected Servers", value: `${db.protectedServers.length}`, inline: true },
                 { name: "📥 Queue Size", value: `${processingQueue.length}`, inline: true },
                 { name: "⚙️ Currently Processing", value: isQueueProcessing ? "Yes" : "No", inline: true }
@@ -555,7 +588,8 @@ client.on(Events.MessageCreate, async (message) => {
         "!startdm", "!process", "!autoprocess", "!setdelay",
         "!setembed", "!setdmembed", "!clearqueue",
         "!setbutton", "!addbutton", "!clearbuttons", "!buttons",
-        "!addrecipient", "!removerecipient", "!reqoptin"
+        "!addrecipient", "!removerecipient", "!reqoptin",
+        "!allowrepeat", "!clearsent"
     ];
 
     if (adminCommands.includes(command) && !isAdmin(message)) {
@@ -636,6 +670,33 @@ client.on(Events.MessageCreate, async (message) => {
         } else {
             return message.reply(`ℹ️ Current Auto-Process state: **${db.settings.autoProcess ? "ENABLED" : "DISABLED"}**.\nUse \`!autoprocess on\` or \`!autoprocess off\` to toggle.`);
         }
+    }
+
+    // !allowrepeat
+    if (command === "!allowrepeat") {
+        const state = args[0]?.toLowerCase();
+        const db = loadDB();
+
+        if (state === "on" || state === "true" || state === "enable") {
+            db.settings.allowRepeatDms = true;
+            saveDB(db);
+            return message.reply("🔄 Repeat DMs are now **ENABLED**. Previously messaged users will receive DMs again on server join.");
+        } else if (state === "off" || state === "false" || state === "disable") {
+            db.settings.allowRepeatDms = false;
+            saveDB(db);
+            return message.reply("🛡️ Repeat DMs are now **DISABLED**. Users will only receive 1 DM across all servers.");
+        } else {
+            return message.reply(`ℹ️ Current Repeat DM state: **${db.settings.allowRepeatDms ? "ENABLED" : "DISABLED"}**.\nUse \`!allowrepeat on\` or \`!allowrepeat off\` to toggle.`);
+        }
+    }
+
+    // !clearsent
+    if (command === "!clearsent") {
+        const db = loadDB();
+        const count = db.sentUsers ? db.sentUsers.length : 0;
+        db.sentUsers = [];
+        saveDB(db);
+        return message.reply(`🗑️ Cleared **${count}** users from the sent memory history.`);
     }
 
     // !setdelay
