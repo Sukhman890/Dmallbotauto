@@ -970,18 +970,15 @@ client.on(Events.MessageCreate, async (message) => {
 
     // !setembed
     if (command === "!setembed") {
-        const text = args.join(" ");
-        const parts = text.split("|").map((p) => p.trim());
+        const text = message.content.slice(command.length).trim();
+const separatorIndex = text.indexOf("|");
 
-        if (parts.length < 2) {
-            return message.reply("⚠️ Usage: `!setembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]`");
-        }
-
-        const db = loadDB();
-        db.customEmbed.title = parts[0];
-        db.customEmbed.description = parts[1];
-        if (parts[2]) {
-    const colorInput = parts[2].trim();
+const parts = separatorIndex === -1
+    ? [text]
+    : [
+        text.slice(0, separatorIndex).trim(),
+        text.slice(separatorIndex + 1).trim()
+    ];
 
     if (/^#[0-9a-fA-F]{6}$/.test(colorInput)) {
         db.customEmbed.color = parseInt(colorInput.slice(1), 16);
