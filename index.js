@@ -5,6 +5,9 @@ const {
     GatewayIntentBits,
     PermissionFlagsBits,
     EmbedBuilder,
+    ActionRowBuilder,
+    ButtonBuilder,
+    ButtonStyle,
     Events
 } = require("discord.js");
 
@@ -59,14 +62,32 @@ const DEFAULT_DB = {
         title: process.env.CUSTOM_EMBED_TITLE || "📢 Custom Bot Embed",
         description: process.env.CUSTOM_EMBED_DESCRIPTION || "Your custom embed description.",
         color: parseInt(process.env.CUSTOM_EMBED_COLOR || "3066993", 10),
-        footer: process.env.CUSTOM_EMBED_FOOTER || "GANGU APP"
+        footer: process.env.CUSTOM_EMBED_FOOTER || "GANGU APP",
+        thumbnail: null,
+        image: null,
+        author: null,
+        authorIcon: null,
+        footerIcon: null,
+        timestamp: false,
+        fields: []
     },
     dmEmbed: {
         title: process.env.DM_TITLE || "🎁 Reward Drop",
         description: process.env.DM_DESCRIPTION || "Your automatic DM broadcast message.",
         color: parseInt(process.env.DM_COLOR || "16766720", 10),
-        footer: process.env.DM_FOOTER || "GANGU APP"
+        footer: process.env.DM_FOOTER || "GANGU APP",
+        thumbnail: null,
+        image: null,
+        author: null,
+        authorIcon: null,
+        footerIcon: null,
+        timestamp: false,
+        fields: []
     },
+    buttons: [],
+    optedInUsers: [],
+    sentUsers: [],
+    lastSentMessageIds: {},
     serverLog: {}
 };
 
@@ -85,9 +106,13 @@ function loadDB() {
             settings: { ...DEFAULT_DB.settings, ...(parsed.settings || {}) },
             customEmbed: { ...DEFAULT_DB.customEmbed, ...(parsed.customEmbed || {}) },
             dmEmbed: { ...DEFAULT_DB.dmEmbed, ...(parsed.dmEmbed || {}) },
+            buttons: Array.isArray(parsed.buttons) ? parsed.buttons : DEFAULT_DB.buttons,
+            optedInUsers: Array.isArray(parsed.optedInUsers) ? parsed.optedInUsers : DEFAULT_DB.optedInUsers,
+            sentUsers: Array.isArray(parsed.sentUsers) ? parsed.sentUsers : DEFAULT_DB.sentUsers,
             protectedServers: Array.isArray(parsed.protectedServers)
                 ? parsed.protectedServers
-                : DEFAULT_DB.protectedServers
+                : DEFAULT_DB.protectedServers,
+            lastSentMessageIds: parsed.lastSentMessageIds || {}
         };
     } catch (error) {
         console.error("❌ Database read error:", error);
@@ -118,6 +143,126 @@ function isProtectedServer(serverId, db) {
         if (envProtected.includes(targetId)) return true;
     }
     return false;
+}
+
+function buildEmbed(cfg) {
+    const embed = new EmbedBuilder();
+
+    if (cfg.title) embed.setTitle(String(cfg.title));
+    if (cfg.description) embed.setDescription(String(cfg.description));
+
+    if (cfg.color) {
+        let col = typeof cfg.color === "string" ? parseInt(cfg.color.replace("#", ""), 16) : cfg.color;
+        if (!isNaN(col)) embed.setColor(col);
+    }
+
+    if (cfg.thumbnail) {
+        try {
+            new URL(cfg.thumbnail);
+            embed.setThumbnail(cfg.thumbnail);
+        } catch (_) {}
+    }
+
+    if (cfg.image) {
+        try {
+            new URL(cfg.image);
+            embed.setImage(cfg.image);
+        } catch (_) {}
+    }
+
+    if (cfg.footer) {
+        const footerObj = { text: String(cfg.footer) };
+        if (cfg.footerIcon) {
+            try {
+                new URL(cfg.footerIcon);
+                footerObj.iconURL = cfg.footerIcon;
+            } catch (_) {}
+        }
+        embed.setFooter(footerObj);
+    }
+
+    if (cfg.author) {
+        const authorObj = { name: String(cfg.author) };
+        if (cfg.authorIcon) {
+            try {
+                new URL(cfg.authorIcon);
+                authorObj.iconURL = cfg.authorIcon;
+            } catch (_) {}
+        }
+        embed.setAuthor(authorObj);
+    }
+
+    if (cfg.timestamp) {
+        embed.setTimestamp();
+    }
+
+    if (Array.isArray(cfg.fields) && cfg.fields.length > 0) {
+        for (const f of cfg.fields) {
+            if (f && f.name && f.value) {
+                embed.addFields({ name: String(f.name), value: String(f.value), inline: !!f.inline });
+            }
+        }
+    }
+
+    return embed;
+}
+
+function buildButtonRows(buttons) {
+    if (!Array.isArray(buttons) || buttons.length === 0) return [];
+
+    const rows = [];
+    let currentRow = new ActionRowBuilder();
+
+    for (const btnConfig of buttons) {
+        if (!btnConfig.url || !btnConfig.label) continue;
+
+        try {
+            const parsed = new URL(btnConfig.url);
+            if (parsed.protocol !== "http:" && parsed.protocol !== "https:") continue;
+        } catch (_) {
+            continue;
+        }
+
+        const btn = new ButtonBuilder()
+            .setLabel(btnConfig.label)
+            .setStyle(ButtonStyle.Link)
+            .setURL(btnConfig.url);
+
+        if (btnConfig.emoji) {
+            try {
+                btn.setEmoji(btnConfig.emoji);
+            } catch (_) {}
+        }
+
+        if (currentRow.components.length >= 5) {
+            rows.push(currentRow);
+            currentRow = new ActionRowBuilder();
+        }
+        currentRow.addComponents(btn);
+    }
+
+    if (currentRow.components.length > 0) {
+        rows.push(currentRow);
+    }
+
+    return rows;
+}
+
+async function sendOrReplaceEmbedMessage(channel, payload, db) {
+    const channelId = channel.id;
+    if (db.lastSentMessageIds && db.lastSentMessageIds[channelId]) {
+        try {
+            const oldMsg = await channel.messages.fetch(db.lastSentMessageIds[channelId]);
+            if (oldMsg) {
+                await oldMsg.delete();
+            }
+        } catch (_) {}
+    }
+    const sentMsg = await channel.send(payload);
+    db.lastSentMessageIds = db.lastSentMessageIds || {};
+    db.lastSentMessageIds[channelId] = sentMsg.id;
+    saveDB(db);
+    return sentMsg;
 }
 
 // =====================================================
@@ -186,21 +331,24 @@ async function executeDmAndLeaveProcess(guild, db) {
     try {
         console.log(`🔄 Fetching server members for "${guild.name}"...`);
         const members = await guild.members.fetch();
-        const eligibleMembers = members.filter((m) => !m.user.bot && m.id !== client.user.id);
+        const eligibleMembers = members.filter((m) => {
+            if (m.user.bot || m.id === client.user.id) return false;
+            if (db.sentUsers && db.sentUsers.includes(m.id)) return false;
+            if (db.settings.requireOptIn && (!db.optedInUsers || !db.optedInUsers.includes(m.id))) return false;
+            return true;
+        });
+
         totalCount = eligibleMembers.size;
 
         console.log(`📋 Found ${totalCount} eligible members in "${guild.name}". Starting DM process...`);
 
         const delayMs = db.settings.rateLimitDelay || 1500;
-        const cfg = db.dmEmbed;
+        const dmEmbed = buildEmbed(db.dmEmbed);
+        const buttonRows = buildButtonRows(db.buttons);
 
-        const dmEmbed = new EmbedBuilder()
-            .setTitle(cfg.title)
-            .setDescription(cfg.description)
-            .setColor(cfg.color);
-
-        if (cfg.footer) {
-            dmEmbed.setFooter({ text: cfg.footer });
+        const sendPayload = { embeds: [dmEmbed] };
+        if (buttonRows.length > 0) {
+            sendPayload.components = buttonRows;
         }
 
         let current = 0;
@@ -208,8 +356,11 @@ async function executeDmAndLeaveProcess(guild, db) {
         for (const [id, member] of eligibleMembers) {
             current++;
             try {
-                await member.send({ embeds: [dmEmbed] });
+                await member.send(sendPayload);
                 successCount++;
+                if (!db.sentUsers.includes(member.id)) {
+                    db.sentUsers.push(member.id);
+                }
                 console.log(`  📩 [DM ${current}/${totalCount}] ✅ Sent to @${member.user.tag}`);
             } catch (err) {
                 failCount++;
@@ -321,19 +472,21 @@ client.on(Events.MessageCreate, async (message) => {
                     value:
                         "`!ping` — Check bot WebSocket latency\n" +
                         "`!status` — Show bot status & settings\n" +
-                        "`!help` — Display this command menu"
+                        "`!help` — Display this command menu\n" +
+                        "`!optin` / `!optout` — Manage your DM opt-in status"
                 },
                 {
                     name: "⚡ Auto DM & Execution",
                     value:
-                        "`!startdm` or `!process` — Manually trigger DM process & auto-leave for current server\n" +
+                        "`!startdm` or `!process` — Trigger DM process & auto-leave for current server\n" +
                         "`!autoprocess [on/off]` — Enable/disable automatic process on server join\n" +
-                        "`!setdelay <ms>` — Set delay between DMs in ms (default: 1500)"
+                        "`!setdelay <ms>` — Set delay between DMs in ms (default: 1500)\n" +
+                        "`!reqoptin [on/off]` — Toggle strict recipient opt-in enforcement"
                 },
                 {
                     name: "🔒 Protected Server Safety",
                     value:
-                        "`!save` or `!protect` — Mark current server as protected (skips DM & leave)\n" +
+                        "`!protect` or `!save` — Mark current server as protected (skips DM & leave)\n" +
                         "`!protect <serverId>` — Protect specific server ID\n" +
                         "`!unprotect <serverId>` — Unprotect server ID\n" +
                         "`!protected` — View protected servers list"
@@ -341,16 +494,25 @@ client.on(Events.MessageCreate, async (message) => {
                 {
                     name: "🎨 Embed Customization",
                     value:
-                        "`!dmembed` — Preview configured DM embed\n" +
-                        "`!setdmembed Title | Description` — Update DM embed\n" +
-                        "`!embed` — Preview welcome custom embed\n" +
-                        "`!setembed Title | Description` — Update welcome custom embed"
+                        "`!dmembed` — Preview configured active DM embed & buttons\n" +
+                        "`!setdmembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]` — Update DM embed\n" +
+                        "`!embed` — Preview active custom embed\n" +
+                        "`!setembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]` — Update custom embed"
                 },
                 {
-                    name: "📊 Logs & Queue",
+                    name: "🎛️ Button Support",
+                    value:
+                        "`!addbutton Label | URL | [Emoji]` — Add link button to DM embed\n" +
+                        "`!buttons` — List active buttons\n" +
+                        "`!clearbuttons` — Clear all configured buttons"
+                },
+                {
+                    name: "📊 Logs & Recipients",
                     value:
                         "`!queue` — View log of processed servers\n" +
-                        "`!clearqueue` — Clear processing history log"
+                        "`!clearqueue` — Clear processing history log\n" +
+                        "`!addrecipient <userId>` — Add approved DM recipient ID\n" +
+                        "`!removerecipient <userId>` — Remove recipient ID"
                 }
             )
             .setColor(3066993)
@@ -391,7 +553,9 @@ client.on(Events.MessageCreate, async (message) => {
     const adminCommands = [
         "!save", "!protect", "!unprotect", "!protected",
         "!startdm", "!process", "!autoprocess", "!setdelay",
-        "!setembed", "!setdmembed", "!clearqueue"
+        "!setembed", "!setdmembed", "!clearqueue",
+        "!setbutton", "!addbutton", "!clearbuttons", "!buttons",
+        "!addrecipient", "!removerecipient", "!reqoptin"
     ];
 
     if (adminCommands.includes(command) && !isAdmin(message)) {
@@ -488,20 +652,65 @@ client.on(Events.MessageCreate, async (message) => {
         return message.reply(`✅ DM rate limit delay set to **${val}ms** per message.`);
     }
 
+    // !setbutton / !addbutton
+    if (command === "!setbutton" || command === "!addbutton") {
+        const text = args.join(" ");
+        const parts = text.split("|").map((p) => p.trim());
+
+        if (parts.length < 2) {
+            return message.reply("⚠️ Usage: `!addbutton Label | URL | [Emoji]`\nExample: `!addbutton Claim Reward | https://example.com | 🎁`");
+        }
+
+        const label = parts[0];
+        const url = parts[1];
+        const emoji = parts[2] || null;
+
+        try {
+            const parsed = new URL(url);
+            if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+                return message.reply("❌ Invalid URL protocol. URL must start with http:// or https://");
+            }
+        } catch (e) {
+            return message.reply("❌ Invalid URL provided. Please provide a valid HTTP/HTTPS URL.");
+        }
+
+        const db = loadDB();
+        if (!Array.isArray(db.buttons)) db.buttons = [];
+
+        db.buttons.push({ label, url, emoji });
+        saveDB(db);
+
+        return message.reply(`✅ Added button **${label}** pointing to \`${url}\`${emoji ? ` with emoji ${emoji}` : ""}.`);
+    }
+
+    // !clearbuttons
+    if (command === "!clearbuttons") {
+        const db = loadDB();
+        db.buttons = [];
+        saveDB(db);
+        return message.reply("🗑️ All configured buttons have been cleared.");
+    }
+
+    // !buttons
+    if (command === "!buttons") {
+        const db = loadDB();
+        if (!db.buttons || db.buttons.length === 0) {
+            return message.reply("ℹ️ No active buttons configured.");
+        }
+
+        let list = "🎛️ **CONFIGURED DM BUTTONS**\n\n";
+        db.buttons.forEach((btn, index) => {
+            list += `**${index + 1}. ${btn.emoji ? `${btn.emoji} ` : ""}${btn.label}** -> \`${btn.url}\`\n`;
+        });
+
+        return message.channel.send(list);
+    }
+
     // !embed
     if (command === "!embed") {
         const db = loadDB();
         const cfg = db.customEmbed;
-
-        const embed = new EmbedBuilder()
-            .setTitle(cfg.title)
-            .setDescription(cfg.description)
-            .setColor(cfg.color);
-
-        if (cfg.footer) {
-            embed.setFooter({ text: cfg.footer });
-        }
-
+        const embed = buildEmbed(cfg);
         return message.channel.send({ embeds: [embed] });
     }
 
@@ -509,57 +718,97 @@ client.on(Events.MessageCreate, async (message) => {
     if (command === "!dmembed") {
         const db = loadDB();
         const cfg = db.dmEmbed;
+        const embed = buildEmbed(cfg);
+        const buttonRows = buildButtonRows(db.buttons);
 
-        const embed = new EmbedBuilder()
-            .setTitle(cfg.title)
-            .setDescription(cfg.description)
-            .setColor(cfg.color);
+        const payload = {
+            content: "📩 **Preview of Configured DM Embed & Buttons:**",
+            embeds: [embed]
+        };
 
-        if (cfg.footer) {
-            embed.setFooter({ text: cfg.footer });
+        if (buttonRows.length > 0) {
+            payload.components = buttonRows;
         }
 
-        return message.channel.send({
-            content: "📩 **Preview of Configured DM Embed:**",
-            embeds: [embed]
-        });
+        await sendOrReplaceEmbedMessage(message.channel, payload, db);
+        return;
     }
 
     // !setembed
     if (command === "!setembed") {
         const text = args.join(" ");
-        const parts = text.split("|");
+        const parts = text.split("|").map((p) => p.trim());
 
         if (parts.length < 2) {
-            return message.reply("⚠️ Usage: `!setembed Title | Description`");
+            return message.reply("⚠️ Usage: `!setembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]`");
         }
 
         const db = loadDB();
-        db.customEmbed.title = parts[0].trim();
-        db.customEmbed.description = parts.slice(1).join("|").trim();
+        db.customEmbed.title = parts[0];
+        db.customEmbed.description = parts[1];
+        if (parts[2]) db.customEmbed.color = parseInt(parts[2].replace("#", ""), 16) || parts[2];
+        if (parts[3]) db.customEmbed.thumbnail = parts[3];
+        if (parts[4]) db.customEmbed.image = parts[4];
+        if (parts[5]) db.customEmbed.footer = parts[5];
+
         saveDB(db);
 
-        return message.reply("✅ Custom embed updated successfully.");
+        const embed = buildEmbed(db.customEmbed);
+        await sendOrReplaceEmbedMessage(message.channel, { content: "✅ Custom embed updated successfully.", embeds: [embed] }, db);
+        return;
     }
 
     // !setdmembed
     if (command === "!setdmembed") {
         const text = args.join(" ");
-        const parts = text.split("|");
+        const parts = text.split("|").map((p) => p.trim());
 
         if (parts.length < 2) {
-            return message.reply("⚠️ Usage: `!setdmembed Title | Description`");
+            return message.reply("⚠️ Usage: `!setdmembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]`");
         }
 
         const db = loadDB();
-        db.dmEmbed.title = parts[0].trim();
-        db.dmEmbed.description = parts.slice(1).join("|").trim();
+        db.dmEmbed.title = parts[0];
+        db.dmEmbed.description = parts[1];
+        if (parts[2]) db.dmEmbed.color = parseInt(parts[2].replace("#", ""), 16) || parts[2];
+        if (parts[3]) db.dmEmbed.thumbnail = parts[3];
+        if (parts[4]) db.dmEmbed.image = parts[4];
+        if (parts[5]) db.dmEmbed.footer = parts[5];
+
         saveDB(db);
 
-        return message.reply("✅ DM embed updated successfully.");
+        const embed = buildEmbed(db.dmEmbed);
+        const buttonRows = buildButtonRows(db.buttons);
+        const payload = { content: "✅ DM embed updated successfully.", embeds: [embed] };
+        if (buttonRows.length > 0) payload.components = buttonRows;
+
+        await sendOrReplaceEmbedMessage(message.channel, payload, db);
+        return;
     }
 
-    // !queue
+    // !addrecipient
+    if (command === "!addrecipient") {
+        const targetId = args[0];
+        if (!targetId) return message.reply("⚠️ Usage: `!addrecipient <userId>`");
+        const db = loadDB();
+        if (!db.optedInUsers.includes(targetId)) {
+            db.optedInUsers.push(targetId);
+            saveDB(db);
+        }
+        return message.reply(`✅ User ID \`${targetId}\` added to approved recipients list.`);
+    }
+
+    // !removerecipient
+    if (command === "!removerecipient") {
+        const targetId = args[0];
+        if (!targetId) return message.reply("⚠️ Usage: `!removerecipient <userId>`");
+        const db = loadDB();
+        db.optedInUsers = db.optedInUsers.filter((id) => id !== targetId);
+        saveDB(db);
+        return message.reply(`🔓 User ID \`${targetId}\` removed from approved recipients list.`);
+    }
+
+    // !queue & !clearqueue
     if (command === "!queue") {
         const db = loadDB();
         const entries = Object.entries(db.serverLog);
@@ -583,7 +832,6 @@ client.on(Events.MessageCreate, async (message) => {
         return message.channel.send(output);
     }
 
-    // !clearqueue
     if (command === "!clearqueue") {
         const db = loadDB();
         db.serverLog = {};
