@@ -59,32 +59,14 @@ const DEFAULT_DB = {
         title: process.env.CUSTOM_EMBED_TITLE || "📢 Custom Bot Embed",
         description: process.env.CUSTOM_EMBED_DESCRIPTION || "Your custom embed description.",
         color: parseInt(process.env.CUSTOM_EMBED_COLOR || "3066993", 10),
-        footer: process.env.CUSTOM_EMBED_FOOTER || "GANGU APP",
-        thumbnail: null,
-        image: null,
-        author: null,
-        authorIcon: null,
-        footerIcon: null,
-        timestamp: false,
-        fields: []
+        footer: process.env.CUSTOM_EMBED_FOOTER || "GANGU APP"
     },
     dmEmbed: {
         title: process.env.DM_TITLE || "🎁 Reward Drop",
         description: process.env.DM_DESCRIPTION || "Your automatic DM broadcast message.",
         color: parseInt(process.env.DM_COLOR || "16766720", 10),
-        footer: process.env.DM_FOOTER || "GANGU APP",
-        thumbnail: null,
-        image: null,
-        author: null,
-        authorIcon: null,
-        footerIcon: null,
-        timestamp: false,
-        fields: []
+        footer: process.env.DM_FOOTER || "GANGU APP"
     },
-    buttons: [],
-    optedInUsers: [],
-    sentUsers: [],
-    lastSentMessageIds: {},
     serverLog: {}
 };
 
@@ -103,13 +85,9 @@ function loadDB() {
             settings: { ...DEFAULT_DB.settings, ...(parsed.settings || {}) },
             customEmbed: { ...DEFAULT_DB.customEmbed, ...(parsed.customEmbed || {}) },
             dmEmbed: { ...DEFAULT_DB.dmEmbed, ...(parsed.dmEmbed || {}) },
-            buttons: Array.isArray(parsed.buttons) ? parsed.buttons : DEFAULT_DB.buttons,
-            optedInUsers: Array.isArray(parsed.optedInUsers) ? parsed.optedInUsers : DEFAULT_DB.optedInUsers,
-            sentUsers: Array.isArray(parsed.sentUsers) ? parsed.sentUsers : DEFAULT_DB.sentUsers,
             protectedServers: Array.isArray(parsed.protectedServers)
                 ? parsed.protectedServers
-                : DEFAULT_DB.protectedServers,
-            lastSentMessageIds: parsed.lastSentMessageIds || {}
+                : DEFAULT_DB.protectedServers
         };
     } catch (error) {
         console.error("❌ Database read error:", error);
@@ -130,10 +108,14 @@ function isAdmin(message) {
 }
 
 function isProtectedServer(serverId, db) {
-    if (db.protectedServers.includes(serverId)) return true;
+    if (!serverId) return false;
+    const targetId = String(serverId).trim();
+    if (Array.isArray(db.protectedServers)) {
+        if (db.protectedServers.some((id) => String(id).trim() === targetId)) return true;
+    }
     if (process.env.PROTECTED_SERVERS) {
-        const envProtected = process.env.PROTECTED_SERVERS.split(",").map((s) => s.trim());
-        if (envProtected.includes(serverId)) return true;
+        const envProtected = process.env.PROTECTED_SERVERS.split(",").map((s) => String(s).trim());
+        if (envProtected.includes(targetId)) return true;
     }
     return false;
 }
@@ -419,12 +401,14 @@ client.on(Events.MessageCreate, async (message) => {
     // !save / !protect
     if (command === "!save" || command === "!protect") {
         const db = loadDB();
-        const targetId = args[0] || message.guild.id;
+        const targetId = String(args[0] || message.guild.id).trim();
 
-        if (!db.protectedServers.includes(targetId)) {
+        if (!db.protectedServers.some((id) => String(id).trim() === targetId)) {
             db.protectedServers.push(targetId);
             saveDB(db);
-            return message.reply(`🔒 Server ID \`${targetId}\` is now permanently protected from auto DM and auto leave.`);
+            return message.reply(
+                `🔒 Server Protection Enabled\nServer ID \`${targetId}\` will be excluded from the automated DM workflow.`
+            );
         }
 
         return message.reply(`ℹ️ Server ID \`${targetId}\` is already protected.`);
@@ -432,11 +416,11 @@ client.on(Events.MessageCreate, async (message) => {
 
     // !unprotect
     if (command === "!unprotect") {
-        const targetId = args[0] || message.guild.id;
+        const targetId = String(args[0] || message.guild.id).trim();
         const db = loadDB();
 
-        if (db.protectedServers.includes(targetId)) {
-            db.protectedServers = db.protectedServers.filter((id) => id !== targetId);
+        if (db.protectedServers.some((id) => String(id).trim() === targetId)) {
+            db.protectedServers = db.protectedServers.filter((id) => String(id).trim() !== targetId);
             saveDB(db);
             return message.reply(`🔓 Server ID \`${targetId}\` has been removed from protected servers.`);
         }
@@ -463,6 +447,10 @@ client.on(Events.MessageCreate, async (message) => {
 
     // !startdm / !process
     if (command === "!startdm" || command === "!process") {
+        const db = loadDB();
+        if (isProtectedServer(message.guild.id, db)) {
+            return message.reply(`🛡️ **${message.guild.name}** is a protected server. DM process skipped.`);
+        }
         await message.reply(`🚀 Triggering DM process for **${message.guild.name}**...`);
         enqueueGuild(message.guild);
         return;
