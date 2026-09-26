@@ -1,20 +1,39 @@
-
+{
   "settings": {
     "autoProcess": true,
-    "rateLimitDelay": 1500
+    "rateLimitDelay": 1500,
+    "requireOptIn": false
   },
   "protectedServers": [],
   "customEmbed": {
     "title": "📢 Custom Bot Embed",
     "description": "Your custom embed description.",
     "color": 3066993,
-    "footer": "GANGU APP"
+    "footer": "GANGU APP",
+    "thumbnail": null,
+    "image": null,
+    "author": null,
+    "authorIcon": null,
+    "footerIcon": null,
+    "timestamp": false,
+    "fields": []
   },
   "dmEmbed": {
     "title": "🎁 Reward Drop",
     "description": "Your automatic DM broadcast message.",
     "color": 16766720,
-    "footer": "GANGU APP"
+    "footer": "GANGU APP",
+    "thumbnail": null,
+    "image": null,
+    "author": null,
+    "authorIcon": null,
+    "footerIcon": null,
+    "timestamp": false,
+    "fields": []
   },
+  "buttons": [],
+  "optedInUsers": [],
+  "sentUsers": [],
+  "lastSentMessageIds": {},
   "serverLog": {}
 }
