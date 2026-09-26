@@ -4,7 +4,7 @@
     "rateLimitDelay": 1500,
     "requireOptIn": false
   },
-  "protectedServers": [],
+  "protectedServers": [1507960325511843910],
   "customEmbed": {
     "title": "📢 Custom Bot Embed",
     "description": "Your custom embed description.",
