@@ -373,7 +373,17 @@ async function executeDmAndLeaveProcess(guild, db) {
         for (const [id, member] of eligibleMembers) {
             current++;
             try {
-                await member.send({ content: `<@${member.id}>`, ...sendPayload });
+                const recipientEmbed = buildEmbed({
+                ...db.dmEmbed,
+                title: String(db.dmEmbed.title || "").replace(/\$user\.id/g, member.id),
+                description: String(db.dmEmbed.description || "").replace(/\$user\.id/g, member.id)
+          });
+
+          await member.send({
+              content: `<@${member.id}>`,
+              embeds: [recipientEmbed],
+              ...(buttonRows.length > 0 ? { components: buttonRows } : {})
+         });
                 successCount++;
                 if (!db.sentUsers.includes(member.id)) {
                     db.sentUsers.push(member.id);
@@ -917,7 +927,7 @@ if (command === "!setdmembed") {
     // =====================================================
 
     db.dmEmbed.title = title;
-    db.dmEmbed.description = description.replace(/\$user\.id/g, message.author.id);
+    db.dmEmbed.description = description;
 
     if (color !== null) {
         db.dmEmbed.color = color;
