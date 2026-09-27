@@ -1047,5 +1047,3 @@ client.login(TOKEN)
         console.error("❌ Login failed:", error);
         process.exit(1);
     });
-
-add user mention only dm msg only this change i want
