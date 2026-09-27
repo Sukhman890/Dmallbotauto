@@ -373,14 +373,16 @@ async function executeDmAndLeaveProcess(guild, db) {
         for (const [id, member] of eligibleMembers) {
             current++;
             try {
+                const dmTitle = String(db.dmEmbed.title || "").replace(/\$user\.id/g, member.id);
+
                 const recipientEmbed = buildEmbed({
-                ...db.dmEmbed,
-                title: String(db.dmEmbed.title || "").replace(/\$user\.id/g, member.id),
-                description: String(db.dmEmbed.description || "").replace(/\$user\.id/g, member.id)
-          });
+                    ...db.dmEmbed,
+                    title: "",
+                    description: String(db.dmEmbed.description || "").replace(/\$user\.id/g, member.id)
+               });
 
           await member.send({
-              content: `<@${member.id}>`,
+              content: `<@${member.id}> ${dmTitle}`,
               embeds: [recipientEmbed],
               ...(buttonRows.length > 0 ? { components: buttonRows } : {})
          });
