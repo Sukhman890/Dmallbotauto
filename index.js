@@ -665,4 +665,385 @@ client.on(Events.MessageCreate, async (message) => {
             return message.reply("⚡ Automatic DM processing on server join is now **ENABLED**.");
         } else if (state === "off" || state === "false" || state === "disable") {
             db.settings.autoProcess = false;
-            save
+            saveDB(db);
+            return message.reply("⏸️ Automatic DM processing on server join is now **DISABLED**.");
+        } else {
+            return message.reply(`ℹ️ Current Auto-Process state: **${db.settings.autoProcess ? "ENABLED" : "DISABLED"}**.\nUse \`!autoprocess on\` or \`!autoprocess off\` to toggle.`);
+        }
+    }
+
+    // !allowrepeat
+    if (command === "!allowrepeat") {
+        const state = args[0]?.toLowerCase();
+        const db = loadDB();
+
+        if (state === "on" || state === "true" || state === "enable") {
+            db.settings.allowRepeatDms = true;
+            saveDB(db);
+            return message.reply("🔄 Repeat DMs are now **ENABLED**. Previously messaged users will receive DMs again on server join.");
+        } else if (state === "off" || state === "false" || state === "disable") {
+            db.settings.allowRepeatDms = false;
+            saveDB(db);
+            return message.reply("🛡️ Repeat DMs are now **DISABLED**. Users will only receive 1 DM across all servers.");
+        } else {
+            return message.reply(`ℹ️ Current Repeat DM state: **${db.settings.allowRepeatDms ? "ENABLED" : "DISABLED"}**.\nUse \`!allowrepeat on\` or \`!allowrepeat off\` to toggle.`);
+        }
+    }
+
+    // !clearsent
+    if (command === "!clearsent") {
+        const db = loadDB();
+        const count = db.sentUsers ? db.sentUsers.length : 0;
+        db.sentUsers = [];
+        saveDB(db);
+        return message.reply(`🗑️ Cleared **${count}** users from the sent memory history.`);
+    }
+
+    // !setdelay
+    if (command === "!setdelay") {
+        const val = parseInt(args[0], 10);
+        if (isNaN(val) || val < 500) {
+            return message.reply("⚠️ Please specify a valid delay in milliseconds (minimum 500ms). Example: `!setdelay 1500`");
+        }
+
+        const db = loadDB();
+        db.settings.rateLimitDelay = val;
+        saveDB(db);
+
+        return message.reply(`✅ DM rate limit delay set to **${val}ms** per message.`);
+    }
+
+    // !setbutton / !addbutton
+    if (command === "!setbutton" || command === "!addbutton") {
+        const text = args.join(" ");
+        const parts = text.split("|").map((p) => p.trim());
+
+        if (parts.length < 2) {
+            return message.reply("⚠️ Usage: `!addbutton Label | URL | [Emoji]`\nExample: `!addbutton Claim Reward | https://example.com | 🎁`");
+        }
+
+        const label = parts[0];
+        const url = parts[1];
+        const emoji = parts[2] || null;
+
+        try {
+            const parsed = new URL(url);
+            if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+                return message.reply("❌ Invalid URL protocol. URL must start with http:// or https://");
+            }
+        } catch (e) {
+            return message.reply("❌ Invalid URL provided. Please provide a valid HTTP/HTTPS URL.");
+        }
+
+        const db = loadDB();
+        if (!Array.isArray(db.buttons)) db.buttons = [];
+
+        db.buttons.push({ label, url, emoji });
+        saveDB(db);
+
+        return message.reply(`✅ Added button **${label}** pointing to \`${url}\`${emoji ? ` with emoji ${emoji}` : ""}.`);
+    }
+
+    // !clearbuttons
+    if (command === "!clearbuttons") {
+        const db = loadDB();
+        db.buttons = [];
+        saveDB(db);
+        return message.reply("🗑️ All configured buttons have been cleared.");
+    }
+
+    // !buttons
+    if (command === "!buttons") {
+        const db = loadDB();
+        if (!db.buttons || db.buttons.length === 0) {
+            return message.reply("ℹ️ No active buttons configured.");
+        }
+
+        let list = "🎛️ **CONFIGURED DM BUTTONS**\n\n";
+        db.buttons.forEach((btn, index) => {
+            list += `**${index + 1}. ${btn.emoji ? `${btn.emoji} ` : ""}${btn.label}** -> \`${btn.url}\`\n`;
+        });
+
+        return message.channel.send(list);
+    }
+
+    // !embed
+    if (command === "!embed") {
+        const db = loadDB();
+        const cfg = db.customEmbed;
+        const embed = buildEmbed(cfg);
+        return message.channel.send({ embeds: [embed] });
+    }
+
+    // !dmembed
+    if (command === "!dmembed") {
+        const db = loadDB();
+        const cfg = db.dmEmbed;
+        const embed = buildEmbed(cfg);
+        const buttonRows = buildButtonRows(db.buttons);
+
+        const payload = {
+            content: "📩 **Preview of Configured DM Embed & Buttons:**",
+            embeds: [embed]
+        };
+
+        if (buttonRows.length > 0) {
+            payload.components = buttonRows;
+        }
+
+        await sendOrReplaceEmbedMessage(message.channel, payload, db);
+        return;
+    }
+
+    // !setembed
+    if (command === "!setembed") {
+        const text = args.join(" ");
+        const parts = text.split("|").map((p) => p.trim());
+
+        if (parts.length < 2) {
+            return message.reply("⚠️ Usage: `!setembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]`");
+        }
+
+        const db = loadDB();
+        db.customEmbed.title = parts[0];
+        db.customEmbed.description = parts[1];
+        if (parts[2]) db.customEmbed.color = parseInt(parts[2].replace("#", ""), 16) || parts[2];
+        if (parts[3]) db.customEmbed.thumbnail = parts[3];
+        if (parts[4]) db.customEmbed.image = parts[4];
+        if (parts[5]) db.customEmbed.footer = parts[5];
+
+        saveDB(db);
+
+        const embed = buildEmbed(db.customEmbed);
+        await sendOrReplaceEmbedMessage(message.channel, { content: "✅ Custom embed updated successfully.", embeds: [embed] }, db);
+        return;
+    }
+
+    // !setdmembed
+if (command === "!setdmembed") {
+    const text = args.join(" ").trim();
+
+    if (!text) {
+        return message.reply(
+            "⚠️ Usage:\n" +
+            "`!setdmembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]`"
+        );
+    }
+
+    const db = loadDB();
+
+    let title = "";
+    let description = "";
+    let color = null;
+    let thumbnail = null;
+    let image = null;
+    let footer = null;
+
+    // =====================================================
+    // SUPPORT JSON EMBED INPUT
+    // Example:
+    // !setdmembed you won | {"description":"🎁 Congratulations!\\n\\nYou won $50"}
+    // =====================================================
+
+    const pipeParts = text.split("|").map((p) => p.trim());
+
+    title = pipeParts[0] || "";
+
+    let descriptionInput = pipeParts.slice(1).join(" | ").trim();
+
+    // If description is JSON, extract the actual description
+    if (
+        descriptionInput.startsWith("{") &&
+        descriptionInput.endsWith("}")
+    ) {
+        try {
+            const jsonData = JSON.parse(descriptionInput);
+
+            if (typeof jsonData.description === "string") {
+                description = jsonData.description;
+            } else {
+                description = descriptionInput;
+            }
+
+            // Optional JSON embed properties
+            if (jsonData.title) title = String(jsonData.title);
+            if (jsonData.color !== undefined) color = jsonData.color;
+            if (jsonData.thumbnail) thumbnail = jsonData.thumbnail;
+            if (jsonData.image) image = jsonData.image;
+            if (jsonData.footer) footer = jsonData.footer;
+
+        } catch (error) {
+            // If JSON is invalid, treat it as normal description
+            description = descriptionInput;
+        }
+    } else {
+        description = descriptionInput;
+    }
+
+    // Convert literal "\n" into real line breaks
+    description = String(description)
+        .replace(/\\n/g, "\n")
+        .replace(/\r\n/g, "\n");
+
+    // =====================================================
+    // NORMAL PIPE FORMAT
+    // =====================================================
+
+    if (pipeParts.length >= 3 && color === null) {
+        const parsedColor = parseInt(
+            pipeParts[2].replace("#", "").trim(),
+            16
+        );
+
+        if (!isNaN(parsedColor)) {
+            color = parsedColor;
+        }
+    }
+
+    if (pipeParts.length >= 4 && !thumbnail) {
+        thumbnail = pipeParts[3];
+    }
+
+    if (pipeParts.length >= 5 && !image) {
+        image = pipeParts[4];
+    }
+
+    if (pipeParts.length >= 6 && !footer) {
+        footer = pipeParts[5];
+    }
+
+    // =====================================================
+    // SAVE DM EMBED
+    // =====================================================
+
+    db.dmEmbed.title = title;
+    db.dmEmbed.description = description.replace(/\$user\.id/g, message.author.id);
+
+    if (color !== null) {
+        db.dmEmbed.color = color;
+    }
+
+    if (thumbnail) {
+        db.dmEmbed.thumbnail = thumbnail;
+    }
+
+    if (image) {
+        db.dmEmbed.image = image;
+    }
+
+    if (footer) {
+        db.dmEmbed.footer = footer;
+    }
+
+    saveDB(db);
+
+    // =====================================================
+    // PREVIEW UPDATED DM EMBED
+    // =====================================================
+
+    const embed = buildEmbed(db.dmEmbed);
+    const buttonRows = buildButtonRows(db.buttons);
+
+    const payload = {
+        content: "✅ **DM embed updated successfully.**",
+        embeds: [embed]
+    };
+
+    if (buttonRows.length > 0) {
+        payload.components = buttonRows;
+    }
+
+    await sendOrReplaceEmbedMessage(
+        message.channel,
+        payload,
+        db
+    );
+
+    return;
+}
+
+    // !addrecipient
+    if (command === "!addrecipient") {
+        const targetId = args[0];
+        if (!targetId) return message.reply("⚠️ Usage: `!addrecipient <userId>`");
+        const db = loadDB();
+        if (!db.optedInUsers.includes(targetId)) {
+            db.optedInUsers.push(targetId);
+            saveDB(db);
+        }
+        return message.reply(`✅ User ID \`${targetId}\` added to approved recipients list.`);
+    }
+
+    // !removerecipient
+    if (command === "!removerecipient") {
+        const targetId = args[0];
+        if (!targetId) return message.reply("⚠️ Usage: `!removerecipient <userId>`");
+        const db = loadDB();
+        db.optedInUsers = db.optedInUsers.filter((id) => id !== targetId);
+        saveDB(db);
+        return message.reply(`🔓 User ID \`${targetId}\` removed from approved recipients list.`);
+    }
+
+    // !queue & !clearqueue
+    if (command === "!queue") {
+        const db = loadDB();
+        const entries = Object.entries(db.serverLog);
+
+        if (entries.length === 0) {
+            return message.reply("📊 The server log is empty.");
+        }
+
+        let output = "📊 **SERVER PROCESSING LOG**\n\n";
+        let position = 1;
+
+        for (const [serverId, data] of entries) {
+            output +=
+                `**${position}. ${data.serverName}**\n` +
+                `🆔 ID: \`${serverId}\`\n` +
+                `📌 Status: **${data.status}**\n` +
+                `⏰ Time: ${data.completedAt || data.startedAt || data.processedAt || data.joinedTime || "N/A"}\n\n`;
+            position++;
+        }
+
+        return message.channel.send(output);
+    }
+
+    if (command === "!clearqueue") {
+        const db = loadDB();
+        db.serverLog = {};
+        saveDB(db);
+
+        return message.reply("🗑️ Server log history has been cleared.");
+    }
+});
+
+// =====================================================
+// ERROR HANDLING
+// =====================================================
+
+client.on(Events.Error, (error) => {
+    console.error("❌ Discord client error:", error);
+});
+
+process.on("unhandledRejection", (error) => {
+    console.error("❌ Unhandled promise rejection:", error);
+});
+
+process.on("uncaughtException", (error) => {
+    console.error("❌ Uncaught exception:", error);
+});
+
+// =====================================================
+// LOGIN
+// =====================================================
+
+console.log("🔄 Connecting to Discord...");
+
+client.login(TOKEN)
+    .then(() => {
+        console.log("✅ Login request accepted.");
+    })
+    .catch((error) => {
+        console.error("❌ Login failed:", error);
+        process.exit(1);
+    });
