@@ -953,7 +953,10 @@ if (command === "!setdmembed") {
     // PREVIEW UPDATED DM EMBED
     // =====================================================
 
-    const embed = buildEmbed(db.dmEmbed);
+    const embed = buildEmbed({
+    ...db.dmEmbed,
+    title: ""
+});
     const buttonRows = buildButtonRows(db.buttons);
 
     const payload = {
