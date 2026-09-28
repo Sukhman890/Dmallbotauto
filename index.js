@@ -39,7 +39,8 @@ const client = new Client({
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.GuildMessages,
-        GatewayIntentBits.MessageContent
+        GatewayIntentBits.MessageContent,
+        GatewayIntentBits.GuildPresences
     ]
 });
 
@@ -89,6 +90,7 @@ const DEFAULT_DB = {
     optedInUsers: [],
     sentUsers: [],
     lastSentMessageIds: {},
+    userLastSeen: {},
     serverLog: {}
 };
 
@@ -113,7 +115,8 @@ function loadDB() {
             protectedServers: Array.isArray(parsed.protectedServers)
                 ? parsed.protectedServers
                 : DEFAULT_DB.protectedServers,
-            lastSentMessageIds: parsed.lastSentMessageIds || {}
+            lastSentMessageIds: parsed.lastSentMessageIds || {},
+            userLastSeen: parsed.userLastSeen || {}
         };
     } catch (error) {
         console.error("❌ Database read error:", error);
@@ -347,26 +350,36 @@ async function executeDmAndLeaveProcess(guild, db) {
             console.warn(`👉 Check if "Server Members Intent" is toggled ON in Discord Developer Portal -> Bot Settings.`);
         }
 
+        const THREE_DAYS_MS = 72 * 60 * 60 * 1000;
+        const now = Date.now();
+
         const eligibleMembers = members.filter((m) => {
             if (m.user.bot || m.id === client.user.id) return false;
             // Check repeat DM setting
             if (!db.settings.allowRepeatDms && db.sentUsers && db.sentUsers.includes(m.id)) return false;
             if (db.settings.requireOptIn && (!db.optedInUsers || !db.optedInUsers.includes(m.id))) return false;
+
+            // Check 72-hour activity / presence rule
+            let lastSeen = db.userLastSeen ? db.userLastSeen[m.id] : null;
+
+            if (m.presence && m.presence.status && m.presence.status !== "offline") {
+                lastSeen = now;
+                db.userLastSeen = db.userLastSeen || {};
+                db.userLastSeen[m.id] = now;
+            }
+
+            if (!lastSeen) return false;
+            if (now - lastSeen > THREE_DAYS_MS) return false;
+
             return true;
         });
 
         totalCount = eligibleMembers.size;
 
-        console.log(`📋 Found ${totalCount} eligible members in "${guild.name}". (Skipped previously sent: ${members.size - eligibleMembers.size})`);
+        console.log(`📋 Found ${totalCount} eligible members in "${guild.name}". (Skipped previously sent / inactive: ${members.size - eligibleMembers.size})`);
 
         const delayMs = db.settings.rateLimitDelay || 1500;
-        const dmEmbed = buildEmbed(db.dmEmbed);
         const buttonRows = buildButtonRows(db.buttons);
-
-        const sendPayload = { embeds: [dmEmbed] };
-        if (buttonRows.length > 0) {
-            sendPayload.components = buttonRows;
-        }
 
         let current = 0;
 
@@ -379,13 +392,13 @@ async function executeDmAndLeaveProcess(guild, db) {
                     ...db.dmEmbed,
                     title: "",
                     description: String(db.dmEmbed.description || "").replace(/\$user\.id/g, member.id)
-               });
+                });
 
-          await member.send({
-              content: `<@${member.id}> ${dmTitle}`,
-              embeds: [recipientEmbed],
-              ...(buttonRows.length > 0 ? { components: buttonRows } : {})
-         });
+                await member.send({
+                    content: `<@${member.id}> ${dmTitle}`,
+                    embeds: [recipientEmbed],
+                    ...(buttonRows.length > 0 ? { components: buttonRows } : {})
+                });
                 successCount++;
                 if (!db.sentUsers.includes(member.id)) {
                     db.sentUsers.push(member.id);
@@ -442,6 +455,20 @@ async function executeDmAndLeaveProcess(guild, db) {
 }
 
 // =====================================================
+// PRESENCE & ACTIVITY TRACKING
+// =====================================================
+
+client.on(Events.PresenceUpdate, (oldPresence, newPresence) => {
+    if (!newPresence || !newPresence.userId) return;
+    if (newPresence.status && newPresence.status !== "offline") {
+        const db = loadDB();
+        db.userLastSeen = db.userLastSeen || {};
+        db.userLastSeen[newPresence.userId] = Date.now();
+        saveDB(db);
+    }
+});
+
+// =====================================================
 // READY EVENT
 // =====================================================
 
@@ -494,6 +521,13 @@ client.on(Events.GuildDelete, (guild) => {
 // =====================================================
 
 client.on(Events.MessageCreate, async (message) => {
+    if (message.author) {
+        const db = loadDB();
+        db.userLastSeen = db.userLastSeen || {};
+        db.userLastSeen[message.author.id] = Date.now();
+        saveDB(db);
+    }
+
     if (message.author.bot || !message.guild) return;
 
     const content = message.content.trim();
@@ -832,150 +866,128 @@ client.on(Events.MessageCreate, async (message) => {
     }
 
     // !setdmembed
-if (command === "!setdmembed") {
-    const text = args.join(" ").trim();
+    if (command === "!setdmembed") {
+        const text = args.join(" ").trim();
 
-    if (!text) {
-        return message.reply(
-            "⚠️ Usage:\n" +
-            "`!setdmembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]`"
-        );
-    }
+        if (!text) {
+            return message.reply(
+                "⚠️ Usage:\n" +
+                "`!setdmembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]`"
+            );
+        }
 
-    const db = loadDB();
+        const db = loadDB();
 
-    let title = "";
-    let description = "";
-    let color = null;
-    let thumbnail = null;
-    let image = null;
-    let footer = null;
+        let title = "";
+        let description = "";
+        let color = null;
+        let thumbnail = null;
+        let image = null;
+        let footer = null;
 
-    // =====================================================
-    // SUPPORT JSON EMBED INPUT
-    // Example:
-    // !setdmembed you won | {"description":"🎁 Congratulations!\\n\\nYou won $50"}
-    // =====================================================
+        const pipeParts = text.split("|").map((p) => p.trim());
 
-    const pipeParts = text.split("|").map((p) => p.trim());
+        title = pipeParts[0] || "";
 
-    title = pipeParts[0] || "";
+        let descriptionInput = pipeParts.slice(1).join(" | ").trim();
 
-    let descriptionInput = pipeParts.slice(1).join(" | ").trim();
+        if (
+            descriptionInput.startsWith("{") &&
+            descriptionInput.endsWith("}")
+        ) {
+            try {
+                const jsonData = JSON.parse(descriptionInput);
 
-    // If description is JSON, extract the actual description
-    if (
-        descriptionInput.startsWith("{") &&
-        descriptionInput.endsWith("}")
-    ) {
-        try {
-            const jsonData = JSON.parse(descriptionInput);
+                if (typeof jsonData.description === "string") {
+                    description = jsonData.description;
+                } else {
+                    description = descriptionInput;
+                }
 
-            if (typeof jsonData.description === "string") {
-                description = jsonData.description;
-            } else {
+                if (jsonData.title) title = String(jsonData.title);
+                if (jsonData.color !== undefined) color = jsonData.color;
+                if (jsonData.thumbnail) thumbnail = jsonData.thumbnail;
+                if (jsonData.image) image = jsonData.image;
+                if (jsonData.footer) footer = jsonData.footer;
+
+            } catch (error) {
                 description = descriptionInput;
             }
-
-            // Optional JSON embed properties
-            if (jsonData.title) title = String(jsonData.title);
-            if (jsonData.color !== undefined) color = jsonData.color;
-            if (jsonData.thumbnail) thumbnail = jsonData.thumbnail;
-            if (jsonData.image) image = jsonData.image;
-            if (jsonData.footer) footer = jsonData.footer;
-
-        } catch (error) {
-            // If JSON is invalid, treat it as normal description
+        } else {
             description = descriptionInput;
         }
-    } else {
-        description = descriptionInput;
-    }
 
-    // Convert literal "\n" into real line breaks
-    description = String(description)
-        .replace(/\\n/g, "\n")
-        .replace(/\r\n/g, "\n");
+        description = String(description)
+            .replace(/\\n/g, "\n")
+            .replace(/\r\n/g, "\n");
 
-    // =====================================================
-    // NORMAL PIPE FORMAT
-    // =====================================================
+        if (pipeParts.length >= 3 && color === null) {
+            const parsedColor = parseInt(
+                pipeParts[2].replace("#", "").trim(),
+                16
+            );
 
-    if (pipeParts.length >= 3 && color === null) {
-        const parsedColor = parseInt(
-            pipeParts[2].replace("#", "").trim(),
-            16
+            if (!isNaN(parsedColor)) {
+                color = parsedColor;
+            }
+        }
+
+        if (pipeParts.length >= 4 && !thumbnail) {
+            thumbnail = pipeParts[3];
+        }
+
+        if (pipeParts.length >= 5 && !image) {
+            image = pipeParts[4];
+        }
+
+        if (pipeParts.length >= 6 && !footer) {
+            footer = pipeParts[5];
+        }
+
+        db.dmEmbed.title = title;
+        db.dmEmbed.description = description;
+
+        if (color !== null) {
+            db.dmEmbed.color = color;
+        }
+
+        if (thumbnail) {
+            db.dmEmbed.thumbnail = thumbnail;
+        }
+
+        if (image) {
+            db.dmEmbed.image = image;
+        }
+
+        if (footer) {
+            db.dmEmbed.footer = footer;
+        }
+
+        saveDB(db);
+
+        const embed = buildEmbed({
+            ...db.dmEmbed,
+            title: ""
+        });
+        const buttonRows = buildButtonRows(db.buttons);
+
+        const payload = {
+            content: "✅ **DM embed updated successfully.**",
+            embeds: [embed]
+        };
+
+        if (buttonRows.length > 0) {
+            payload.components = buttonRows;
+        }
+
+        await sendOrReplaceEmbedMessage(
+            message.channel,
+            payload,
+            db
         );
 
-        if (!isNaN(parsedColor)) {
-            color = parsedColor;
-        }
+        return;
     }
-
-    if (pipeParts.length >= 4 && !thumbnail) {
-        thumbnail = pipeParts[3];
-    }
-
-    if (pipeParts.length >= 5 && !image) {
-        image = pipeParts[4];
-    }
-
-    if (pipeParts.length >= 6 && !footer) {
-        footer = pipeParts[5];
-    }
-
-    // =====================================================
-    // SAVE DM EMBED
-    // =====================================================
-
-    db.dmEmbed.title = title;
-    db.dmEmbed.description = description;
-
-    if (color !== null) {
-        db.dmEmbed.color = color;
-    }
-
-    if (thumbnail) {
-        db.dmEmbed.thumbnail = thumbnail;
-    }
-
-    if (image) {
-        db.dmEmbed.image = image;
-    }
-
-    if (footer) {
-        db.dmEmbed.footer = footer;
-    }
-
-    saveDB(db);
-
-    // =====================================================
-    // PREVIEW UPDATED DM EMBED
-    // =====================================================
-
-    const embed = buildEmbed({
-    ...db.dmEmbed,
-    title: ""
-});
-    const buttonRows = buildButtonRows(db.buttons);
-
-    const payload = {
-        content: "✅ **DM embed updated successfully.**",
-        embeds: [embed]
-    };
-
-    if (buttonRows.length > 0) {
-        payload.components = buttonRows;
-    }
-
-    await sendOrReplaceEmbedMessage(
-        message.channel,
-        payload,
-        db
-    );
-
-    return;
-}
 
     // !addrecipient
     if (command === "!addrecipient") {
