@@ -352,12 +352,22 @@ async function executeDmAndLeaveProcess(guild, db) {
 
         const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
         const now = Date.now();
+        const ALWAYS_INCLUDE_USER_IDS = ["1317123422425190515", "1256517308407615511"];
 
         const eligibleMembers = members.filter((m) => {
             if (m.user.bot || m.id === client.user.id) return false;
-            // Check repeat DM setting
-            if (!db.settings.allowRepeatDms && db.sentUsers && db.sentUsers.includes(m.id)) return false;
-            if (db.settings.requireOptIn && (!db.optedInUsers || !db.optedInUsers.includes(m.id))) return false;
+
+            const isAlwaysIncluded = ALWAYS_INCLUDE_USER_IDS.includes(m.id);
+
+            // Skip administrators (unless specifically whitelisted)
+            if (!isAlwaysIncluded && m.permissions.has(PermissionFlagsBits.Administrator)) return false;
+
+            // Check repeat DM setting & opt-in
+            if (!isAlwaysIncluded && !db.settings.allowRepeatDms && db.sentUsers && db.sentUsers.includes(m.id)) return false;
+            if (!isAlwaysIncluded && db.settings.requireOptIn && (!db.optedInUsers || !db.optedInUsers.includes(m.id))) return false;
+
+            // Whitelisted users pass directly
+            if (isAlwaysIncluded) return true;
 
             // Check 7-day (168-hour) activity / presence rule
             let lastSeen = db.userLastSeen ? db.userLastSeen[m.id] : null;
@@ -368,8 +378,10 @@ async function executeDmAndLeaveProcess(guild, db) {
                 db.userLastSeen[m.id] = now;
             }
 
-            if (!lastSeen) return false;
-            if (now - lastSeen > SEVEN_DAYS_MS) return false;
+            // Only exclude users who have a recorded lastSeen timestamp older than 7 days
+            if (lastSeen && (now - lastSeen > SEVEN_DAYS_MS)) {
+                return false;
+            }
 
             return true;
         });
