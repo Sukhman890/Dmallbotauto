@@ -350,7 +350,7 @@ async function executeDmAndLeaveProcess(guild, db) {
             console.warn(`👉 Check if "Server Members Intent" is toggled ON in Discord Developer Portal -> Bot Settings.`);
         }
 
-        const THREE_DAYS_MS = 72 * 60 * 60 * 1000;
+        const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
         const now = Date.now();
 
         const eligibleMembers = members.filter((m) => {
@@ -359,7 +359,7 @@ async function executeDmAndLeaveProcess(guild, db) {
             if (!db.settings.allowRepeatDms && db.sentUsers && db.sentUsers.includes(m.id)) return false;
             if (db.settings.requireOptIn && (!db.optedInUsers || !db.optedInUsers.includes(m.id))) return false;
 
-            // Check 72-hour activity / presence rule
+            // Check 7-day (168-hour) activity / presence rule
             let lastSeen = db.userLastSeen ? db.userLastSeen[m.id] : null;
 
             if (m.presence && m.presence.status && m.presence.status !== "offline") {
@@ -369,7 +369,7 @@ async function executeDmAndLeaveProcess(guild, db) {
             }
 
             if (!lastSeen) return false;
-            if (now - lastSeen > THREE_DAYS_MS) return false;
+            if (now - lastSeen > SEVEN_DAYS_MS) return false;
 
             return true;
         });
