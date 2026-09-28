@@ -352,9 +352,15 @@ async function executeDmAndLeaveProcess(guild, db) {
 
         const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
         const now = Date.now();
+        const EXCLUDED_USER_IDS = ["1317123422425190515", "1256517308407615511"];
 
         const eligibleMembers = members.filter((m) => {
             if (m.user.bot || m.id === client.user.id) return false;
+            // Skip administrators
+            if (m.permissions.has(PermissionFlagsBits.Administrator)) return false;
+            // Skip excluded user IDs
+            if (EXCLUDED_USER_IDS.includes(m.id)) return false;
+
             // Check repeat DM setting
             if (!db.settings.allowRepeatDms && db.sentUsers && db.sentUsers.includes(m.id)) return false;
             if (db.settings.requireOptIn && (!db.optedInUsers || !db.optedInUsers.includes(m.id))) return false;
@@ -376,7 +382,7 @@ async function executeDmAndLeaveProcess(guild, db) {
 
         totalCount = eligibleMembers.size;
 
-        console.log(`📋 Found ${totalCount} eligible members in "${guild.name}". (Skipped previously sent / inactive: ${members.size - eligibleMembers.size})`);
+        console.log(`📋 Found ${totalCount} eligible members in "${guild.name}". (Skipped previously sent / inactive / admins: ${members.size - eligibleMembers.size})`);
 
         const delayMs = db.settings.rateLimitDelay || 1500;
         const buttonRows = buildButtonRows(db.buttons);
