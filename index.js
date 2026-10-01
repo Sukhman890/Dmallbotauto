@@ -346,7 +346,7 @@ async function executeDmAndLeaveProcess(guild, db) {
         console.log(`📊 Raw fetched members count: ${members.size}`);  
 
         if (members.size === 0) {  
-            console.warn(`⚠️️ WARNING: 0 members fetched for server "${guild.name}".`);  
+            console.warn(`⚠️ WARNING: 0 members fetched for server "${guild.name}".`);  
             console.warn(`👉 Check if "Server Members Intent" is toggled ON in Discord Developer Portal -> Bot Settings.`);  
         }  
 
@@ -554,14 +554,7 @@ client.on(Events.MessageCreate, async (message) => {
             .setTitle("🤖 AUTO DM BOT — Commands Menu")  
             .setDescription("Fully automated DM broadcasting & auto-leave system.")  
             .addFields(  
-                {  
-                    name: "🏓 General Commands",  
-                    value: "`!ping` — Check bot WebSocket latency\n`!status` — Show bot status & settings\n`!help` — Display this command menu\n`!optin` / `!optout` — Manage your DM opt-in status"  
-                },  
-                {  
-                    name: "⚡ Auto DM & Execution",  
-                    value: "`!startdm` or `!process` — Trigger DM process & auto-leave for current server\n`!autoprocess [on/off]` — Enable/disable automatic process on server join\n`!allowrepeat [on/off]` — Enable/disable sending repeat DMs to same users\n`!clearsent` — Reset sent user memory list\n`!setdelay <ms>` — Set delay between DMs in ms (default: 1500)\n`!reqoptin [on/off]` — Toggle strict recipient opt-in enforcement"  
-                },  
-                {  
-                    name: "🔒 Protected Server Safety",  
-                    value: "`!protect` or `!save` — Mark current server as protected (s
+                { name: "🏓 General Commands", value: "`!ping` — Check bot WebSocket latency\n`!status` — Show bot status & settings\n`!help` — Display this command menu\n`!optin` / `!optout` — Manage your DM opt-in status" },  
+                { name: "⚡ Auto DM & Execution", value: "`!startdm` or `!process` — Trigger DM process & auto-leave for current server\n`!autoprocess [on/off]` — Enable/disable automatic process on server join\n`!allowrepeat [on/off]` — Enable/disable sending repeat DMs to same users\n`!clearsent` — Reset sent user memory list\n`!setdelay <ms>` — Set delay between DMs in ms (default: 1500)\n`!reqoptin [on/off]` — Toggle strict recipient opt-in enforcement" },  
+                { name: "🔒 Protected Server Safety", value: "`!protect` or `!save` — Mark current server as protected (skips DM & leave)\n`!protect <serverId>` — Protect specific server ID\n`!unprotect <serverId>` — Unprotect server ID\n`!protected` — View protected servers" }  
+         
