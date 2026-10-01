@@ -299,7 +299,7 @@ async function processQueue() {
         console.log(`🛡️ [PROTECTED] Server "${guild.name}" is protected. Skipping auto DM and leave.`);  
         db.serverLog[guild.id] = {  
             serverName: guild.name,  
-            status: "🛡️️ Protected (Skipped)",  
+            status: "🛡️ Protected (Skipped)",  
             processedAt: new Date().toLocaleString()  
         };  
         saveDB(db);  
@@ -497,7 +497,7 @@ client.once(Events.ClientReady, async (c) => {
     if (db.settings.autoProcess) {  
         console.log("⚡ Auto DM processing is ENABLED on server join.");  
     } else {  
-        console.log("⏸️️ Auto DM processing is DISABLED. Use !autoprocess on to enable.");  
+        console.log("⏸️ Auto DM processing is DISABLED. Use !autoprocess on to enable.");  
     }  
     if (db.settings.allowRepeatDms) {  
         console.log("🔄 Repeat DMs are ENABLED (Previously sent users will receive messages again).");  
@@ -548,16 +548,19 @@ client.on(Events.MessageCreate, async (message) => {
     const args = content.split(/\s+/);  
     const command = args.shift().toLowerCase();  
   
-    // !help  
-    if (command === "!help") {  
+    // !ping  
+    if (command === "!ping") {  
+        const sent = await message.channel.send("🏓 Pinging...");  
+        const latency = sent.createdTimestamp - message.createdTimestamp;  
+        await sent.edit(`🏓 Pong! Latency: **${latency}ms** | API Latency: **Math.round(client.ws.ping)ms**`);  
+        return;  
+    }  
+  
+    // !status  
+    if (command === "!status") {  
+        const db = loadDB();  
         const embed = new EmbedBuilder()  
-            .setTitle("🤖 AUTO DM BOT — Commands Menu")  
-            .setDescription("Fully automated DM broadcasting & auto-leave system.")  
+            .setTitle("🤖 Bot Status & Configuration")  
             .addFields(  
-                {  
-                    name: "🏓 General Commands",  
-                    value:  
-                        "`!ping` — Check bot WebSocket latency\n" +  
-                        "`!status` — Show bot status & settings\n" +  
-                        "`!help` — Display this command menu\n" +  
-                        "`!optin` / `!optout` — Manage your DM opt-in status" 
+                { name: "Active Servers", value: `${client.guilds.cache.size}`, inline: true },  
+         
