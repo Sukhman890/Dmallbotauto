@@ -252,23 +252,6 @@ function buildButtonRows(buttons) {
     return rows;
 }
 
-async function sendOrReplaceEmbedMessage(channel, payload, db) {
-    const channelId = channel.id;
-    if (db.lastSentMessageIds && db.lastSentMessageIds[channelId]) {
-        try {
-            const oldMsg = await channel.messages.fetch(db.lastSentMessageIds[channelId]);
-            if (oldMsg) {
-                await oldMsg.delete();
-            }
-        } catch (_) {}
-    }
-    const sentMsg = await channel.send(payload);
-    db.lastSentMessageIds = db.lastSentMessageIds || {};
-    db.lastSentMessageIds[channelId] = sentMsg.id;
-    saveDB(db);
-    return sentMsg;
-}
-
 // =====================================================
 // QUEUE & AUTO-DM MANAGER
 // =====================================================
@@ -294,7 +277,6 @@ async function processQueue() {
     console.log(`🔹 Server: ${guild.name} (${guild.id})`);  
     console.log(`=================================================`);  
 
-    // STEP 1: Check Protected Servers  
     if (isProtectedServer(guild.id, db)) {  
         console.log(`🛡️ [PROTECTED] Server "${guild.name}" is protected. Skipping auto DM and leave.`);  
         db.serverLog[guild.id] = {  
@@ -308,7 +290,6 @@ async function processQueue() {
         return;  
     }  
 
-    // STEP 2: Start DM Process  
     await executeDmAndLeaveProcess(guild, db);  
 
     isQueueProcessing = false;  
@@ -339,15 +320,7 @@ async function executeDmAndLeaveProcess(guild, db) {
             members = await guild.members.fetch();  
         } catch (fetchErr) {  
             console.error(`⚠️ Member fetch error for "${guild.name}":`, fetchErr.message);  
-            console.error(`⚠️ Ensure "Server Members Intent" is enabled in Discord Developer Portal!`);  
             members = guild.members.cache;  
-        }  
-
-        console.log(`📊 Raw fetched members count: ${members.size}`);  
-
-        if (members.size === 0) {  
-            console.warn(`⚠️ WARNING: 0 members fetched for server "${guild.name}".`);  
-            console.warn(`👉 Check if "Server Members Intent" is toggled ON in Discord Developer Portal -> Bot Settings.`);  
         }  
 
         const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;  
@@ -356,40 +329,23 @@ async function executeDmAndLeaveProcess(guild, db) {
 
         const eligibleMembers = members.filter((m) => {  
             if (m.user.bot || m.id === client.user.id) return false;  
-
             const isAlwaysIncluded = ALWAYS_INCLUDE_USER_IDS.includes(m.id);  
-
-            // Skip administrators (unless specifically whitelisted)  
             if (!isAlwaysIncluded && m.permissions.has(PermissionFlagsBits.Administrator)) return false;  
-
-            // Check repeat DM setting & opt-in  
             if (!isAlwaysIncluded && !db.settings.allowRepeatDms && db.sentUsers && db.sentUsers.includes(m.id)) return false;  
             if (!isAlwaysIncluded && db.settings.requireOptIn && (!db.optedInUsers || !db.optedInUsers.includes(m.id))) return false;  
-
-            // Whitelisted users pass directly  
             if (isAlwaysIncluded) return true;  
 
-            // Check 7-day (168-hour) activity / presence rule  
             let lastSeen = db.userLastSeen ? db.userLastSeen[m.id] : null;  
-
             if (m.presence && m.presence.status && m.presence.status !== "offline") {  
                 lastSeen = now;  
                 db.userLastSeen = db.userLastSeen || {};  
                 db.userLastSeen[m.id] = now;  
             }  
-
-            // Only exclude users who have a recorded lastSeen timestamp older than 7 days  
-            if (lastSeen && (now - lastSeen > SEVEN_DAYS_MS)) {  
-                return false;  
-            }  
-
+            if (lastSeen && (now - lastSeen > SEVEN_DAYS_MS)) return false;  
             return true;  
         });  
 
         totalCount = eligibleMembers.size;  
-
-        console.log(`📋 Found ${totalCount} eligible members in "${guild.name}". (Skipped previously sent / inactive: ${members.size - eligibleMembers.size})`);  
-
         const delayMs = db.settings.rateLimitDelay || 1500;  
         const buttonRows = buildButtonRows(db.buttons);  
 
@@ -399,7 +355,6 @@ async function executeDmAndLeaveProcess(guild, db) {
             current++;  
             try {  
                 const dmTitle = String(db.dmEmbed.title || "").replace(/\$user\.id/g, member.id);  
-
                 const recipientEmbed = buildEmbed({  
                     ...db.dmEmbed,  
                     title: "",  
@@ -418,7 +373,7 @@ async function executeDmAndLeaveProcess(guild, db) {
                 console.log(`  📩 [DM ${current}/${totalCount}] ✅ Sent to @${member.user.tag}`);  
             } catch (err) {  
                 failCount++;  
-                console.log(`  📩 [DM ${current}/${totalCount}] ❌ Failed for @${member.user.tag} (${err.message || "DMs Closed"})`);  
+                console.log(`  📩 [DM ${current}/${totalCount}] ❌ Failed for @${member.user.tag}`);  
             }  
 
             if (current < totalCount) {  
@@ -427,10 +382,6 @@ async function executeDmAndLeaveProcess(guild, db) {
         }  
 
         saveDB(db);  
-
-        console.log(`\n✅ DM Process Complete for "${guild.name}"`);  
-        console.log(`📊 Results -> Sent: ${successCount} | Failed: ${failCount} | Total: ${totalCount}`);  
-
         db.serverLog[serverId] = {  
             serverName: guild.name,  
             status: `✅ Complete (Sent: ${successCount}/${totalCount})`,  
@@ -442,7 +393,7 @@ async function executeDmAndLeaveProcess(guild, db) {
         saveDB(db);  
 
     } catch (error) {  
-        console.error(`❌ Error fetching members or executing DM process for "${guild.name}":`, error);  
+        console.error(`❌ Error executing DM process for "${guild.name}":`, error);  
         db.serverLog[serverId] = {  
             serverName: guild.name,  
             status: `❌ DM Error: ${error.message}`,  
@@ -451,12 +402,10 @@ async function executeDmAndLeaveProcess(guild, db) {
         saveDB(db);  
     }  
 
-    // STEP 3: Automatically leave server  
     try {  
         console.log(`🚪 Automatically leaving server: "${guild.name}" (${serverId})...`);  
         await guild.leave();  
         console.log(`✅ Automatically left server: "${guild.name}"`);  
-
         db.serverLog[serverId].status += " | 🚪 Left Server";  
         saveDB(db);  
     } catch (leaveErr) {  
@@ -467,7 +416,7 @@ async function executeDmAndLeaveProcess(guild, db) {
 }
 
 // =====================================================
-// PRESENCE & ACTIVITY TRACKING
+// EVENTS & COMMAND HANDLER
 // =====================================================
 
 client.on(Events.PresenceUpdate, (oldPresence, newPresence) => {
@@ -480,10 +429,6 @@ client.on(Events.PresenceUpdate, (oldPresence, newPresence) => {
     }
 });
 
-// =====================================================
-// READY EVENT
-// =====================================================
-
 client.once(Events.ClientReady, async (c) => {
     console.log("=================================");
     console.log("✅ BOT ONLINE — AUTO DM SYSTEM");
@@ -492,45 +437,15 @@ client.once(Events.ClientReady, async (c) => {
     console.log(`🌐 Active Servers: ${c.guilds.cache.size}`);
     console.log(`📡 WebSocket Latency: ${c.ws.ping}ms`);
     console.log("=================================");
-
-    const db = loadDB();  
-    if (db.settings.autoProcess) {  
-        console.log("⚡ Auto DM processing is ENABLED on server join.");  
-    } else {  
-        console.log("⏸️ Auto DM processing is DISABLED. Use !autoprocess on to enable.");  
-    }  
-    if (db.settings.allowRepeatDms) {  
-        console.log("🔄 Repeat DMs are ENABLED (Previously sent users will receive messages again).");  
-    } else {  
-        console.log("🛡️ Repeat DMs are DISABLED (Users will only receive 1 DM ever across servers).");  
-    }
 });
-
-// =====================================================
-// GUILD JOIN EVENT (AUTO DM TRIGGER)
-// =====================================================
 
 client.on(Events.GuildCreate, async (guild) => {
     console.log(`\n➕ Bot joined server: ${guild.name} (${guild.id})`);
     const db = loadDB();
     if (db.settings.autoProcess) {
         enqueueGuild(guild);
-    } else {
-        console.log("⏸️ Auto-process is turned off. Use !startdm in the server to trigger manually.");
     }
 });
-
-// =====================================================
-// GUILD LEAVE EVENT
-// =====================================================
-
-client.on(Events.GuildDelete, (guild) => {
-    console.log(`➖ Left server: ${guild.name} (${guild.id})`);
-});
-
-// =====================================================
-// COMMAND HANDLER
-// =====================================================
 
 client.on(Events.MessageCreate, async (message) => {
     if (message.author) {
@@ -548,7 +463,6 @@ client.on(Events.MessageCreate, async (message) => {
     const args = content.split(/\s+/);  
     const command = args.shift().toLowerCase();  
 
-    // !help  
     if (command === "!help") {  
         const embed = new EmbedBuilder()  
             .setTitle("🤖 AUTO DM BOT — Commands Menu")  
@@ -558,3 +472,10 @@ client.on(Events.MessageCreate, async (message) => {
                 { name: "Auto DM & Execution", value: "`!startdm` or `!process` — Trigger DM process & auto-leave for current server\n`!autoprocess [on/off]` — Enable/disable automatic process on server join\n`!allowrepeat [on/off]` — Enable/disable sending repeat DMs to same users\n`!clearsent` — Reset sent user memory list\n`!setdelay <ms>` — Set delay between DMs in ms (default: 1500)\n`!reqoptin [on/off]` — Toggle strict recipient opt-in enforcement" },  
                 { name: "Protected Server Safety", value: "`!protect` or `!save` — Mark current server as protected (skips DM & leave)\n`!protect <serverId>` — Protect specific server ID\n`!unprotect <serverId>` — Unprotect server ID\n`!protected` — View protected servers" }  
             );  
+
+        await message.reply({ embeds: [embed] });  
+    }
+});
+
+client.login(TOKEN);
+            
