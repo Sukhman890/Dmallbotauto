@@ -1,4 +1,4 @@
-require("dotenv").config();  
+Require("dotenv").config();  
   
 const {  
     Client,  
@@ -561,4 +561,4 @@ client.on(Events.MessageCreate, async (message) => {
                         "`!status` — Show bot status & settings\n" +  
                         "`!help` — Display this command menu\n" +  
                         "`!optin` / `!optout` — Manage your DM opt-in status"  
-            
+          
