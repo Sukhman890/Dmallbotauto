@@ -212,6 +212,49 @@ function buildEmbed(cfg) {
 }
 
 function buildButtonRows(buttons) {
+    if (!Array.isArray(buttons) || buttons.length === 0) {
+        return [];
+    }
+
+    const rows = [];
+    let row = new ActionRowBuilder();
+
+    for (const btn of buttons) {
+        if (!btn.label || !btn.url) continue;
+
+        try {
+            const url = new URL(btn.url);
+
+            if (!["http:", "https:"].includes(url.protocol)) {
+                continue;
+            }
+
+            const button = new ButtonBuilder()
+                .setLabel(btn.label)
+                .setStyle(ButtonStyle.Link)
+                .setURL(url.href);
+
+            if (btn.emoji) {
+                button.setEmoji(btn.emoji);
+            }
+
+            if (row.components.length >= 5) {
+                rows.push(row);
+                row = new ActionRowBuilder();
+            }
+
+            row.addComponents(button);
+        } catch (error) {
+            console.log("Invalid button:", error.message);
+        }
+    }
+
+    if (row.components.length > 0) {
+        rows.push(row);
+    }
+
+    return rows;
+}
     if (!Array.isArray(buttons) || buttons.length === 0) return [];
 
     const rows = [];
@@ -827,12 +870,11 @@ client.on(Events.MessageCreate, async (message) => {
 
     // !embed
     if (command === "!embed") {
-        const db = loadDB();
-        const cfg = db.customEmbed;
-        const embed = buildEmbed(cfg);
-        return message.channel.send({ embeds: [embed] });
+    const db = loadDB();
+    const cfg = db.customEmbed;
+    const embed = buildEmbed(cfg);
+    return message.channel.send({ embeds: [embed] });
     }
-
     // !dmembed
     if (command === "!dmembed") {
         const db = loadDB();
@@ -854,29 +896,141 @@ client.on(Events.MessageCreate, async (message) => {
     }
 
     // !setembed
-    if (command === "!setembed") {
-        const text = args.join(" ");
-        const parts = text.split("|").map((p) => p.trim());
+if (command === "!setembed") {
+    if (!isAdmin(message)) return;
 
-        if (parts.length < 2) {
-            return message.reply("⚠️ Usage: `!setembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]`");
-        }
+    const text = args.join(" ").trim();
 
-        const db = loadDB();
-        db.customEmbed.title = parts[0];
-        db.customEmbed.description = parts[1];
-        if (parts[2]) db.customEmbed.color = parseInt(parts[2].replace("#", ""), 16) || parts[2];
-        if (parts[3]) db.customEmbed.thumbnail = parts[3];
-        if (parts[4]) db.customEmbed.image = parts[4];
-        if (parts[5]) db.customEmbed.footer = parts[5];
-
-        saveDB(db);
-
-        const embed = buildEmbed(db.customEmbed);
-        await sendOrReplaceEmbedMessage(message.channel, { content: "✅ Custom embed updated successfully.", embeds: [embed] }, db);
-        return;
+    if (!text) {
+        return message.reply(
+            "⚠️ Usage: !setembed Title | Description | Color | Thumbnail | Image | Footer"
+        );
     }
 
+    const db = loadDB();
+    const parts = text.split("|").map(p => p.trim());
+
+    let title = parts[0] || "";
+    let description = "";
+    let color = null;
+    let thumbnail = null;
+    let image = null;
+    let footer = null;
+    let author = null;
+    let authorIcon = null;
+    let footerIcon = null;
+    let timestamp = false;
+    let fields = [];
+
+    // Support JSON descriptions and regular text
+    const descriptionInput = parts.slice(1).join("|").trim();
+
+    if (
+        descriptionInput.startsWith("{") &&
+        descriptionInput.endsWith("}")
+    ) {
+        try {
+            const data = JSON.parse(descriptionInput);
+
+            if (data.title !== undefined) title = String(data.title);
+            description = String(data.description || "");
+            if (data.color !== undefined) color = data.color;
+            if (data.thumbnail) {
+                thumbnail = typeof data.thumbnail === "string"
+                    ? data.thumbnail
+                    : data.thumbnail.url;
+            }
+            if (data.image) {
+                image = typeof data.image === "string"
+                    ? data.image
+                    : data.image.url;
+            }
+            if (data.footer) {
+                footer = typeof data.footer === "string"
+                    ? data.footer
+                    : data.footer.text;
+                if (typeof data.footer === "object") {
+                    footerIcon = data.footer.icon_url || data.footer.iconURL || null;
+                }
+            }
+            if (data.author) {
+                author = typeof data.author === "string"
+                    ? data.author
+                    : data.author.name;
+                if (typeof data.author === "object") {
+                    authorIcon = data.author.icon_url || data.author.iconURL || null;
+                }
+            }
+            timestamp = Boolean(data.timestamp);
+            fields = Array.isArray(data.fields) ? data.fields : [];
+        } catch (error) {
+            return message.reply(
+                `❌ Invalid JSON: ${error.message}`
+            );
+        }
+    } else {
+        description = descriptionInput;
+
+        if (parts.length > 2 && parts[2]) {
+            const parsedColor = parseInt(
+                parts[2].replace("#", ""),
+                16
+            );
+            if (!Number.isNaN(parsedColor)) color = parsedColor;
+        }
+
+        thumbnail = parts[3] || null;
+        image = parts[4] || null;
+        footer = parts[5] || null;
+    }
+
+    // Convert escaped newlines to real line breaks
+    description = description
+        .replace(/\\n/g, "\n")
+        .replace(/\r\n/g, "\n");
+
+    db.customEmbed = {
+        ...db.customEmbed,
+        title,
+        description,
+        color: color ?? db.customEmbed.color,
+        thumbnail,
+        image,
+        footer,
+        author,
+        authorIcon,
+        footerIcon,
+        timestamp,
+        fields
+    };
+
+    saveDB(db);
+
+    try {
+        const embed = buildEmbed(db.customEmbed);
+        const buttonRows = buildButtonRows(db.buttons);
+
+        await sendOrReplaceEmbedMessage(
+            message.channel,
+            {
+                embeds: [embed],
+                components: buttonRows
+            },
+            db
+        );
+
+        return message.reply(
+            "✅ Custom embed saved and published successfully!"
+        );
+    } catch (error) {
+        console.error("Embed error:", error);
+        return message.reply(
+            `❌ Failed to publish embed: ${error.message}`
+        );
+    }
+                                    }
+                
+    
     // !setdmembed
     if (command === "!setdmembed") {
         const text = args.join(" ").trim();
