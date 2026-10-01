@@ -1,13 +1,8 @@
 {
-  "name": "gangu-discord-bot",
+  "name": "dmallbotauto",
   "version": "1.0.0",
-  "description": "Discord.js v14 bot configured for Railway deployment.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
-  },
-  "dependencies": {
-    "discord.js": "^14.14.1",
-    "dotenv": "^16.4.5"
   }
 }
