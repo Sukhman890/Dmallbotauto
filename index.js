@@ -463,6 +463,7 @@ client.on(Events.MessageCreate, async (message) => {
     const args = content.split(/\s+/);  
     const command = args.shift().toLowerCase();  
 
+    // !help  
     if (command === "!help") {  
         const embed = new EmbedBuilder()  
             .setTitle("🤖 AUTO DM BOT — Commands Menu")  
@@ -470,12 +471,70 @@ client.on(Events.MessageCreate, async (message) => {
             .addFields(  
                 { name: "General Commands", value: "`!ping` — Check bot WebSocket latency\n`!status` — Show bot status & settings\n`!help` — Display this command menu\n`!optin` / `!optout` — Manage your DM opt-in status" },  
                 { name: "Auto DM & Execution", value: "`!startdm` or `!process` — Trigger DM process & auto-leave for current server\n`!autoprocess [on/off]` — Enable/disable automatic process on server join\n`!allowrepeat [on/off]` — Enable/disable sending repeat DMs to same users\n`!clearsent` — Reset sent user memory list\n`!setdelay <ms>` — Set delay between DMs in ms (default: 1500)\n`!reqoptin [on/off]` — Toggle strict recipient opt-in enforcement" },  
-                { name: "Protected Server Safety", value: "`!protect` or `!save` — Mark current server as protected (skips DM & leave)\n`!protect <serverId>` — Protect specific server ID\n`!unprotect <serverId>` — Unprotect server ID\n`!protected` — View protected servers" }  
+                { name: "Protected Server Safety", value: "`!protect` or `!save` — Mark current server as protected (skips DM & leave)\n`!protect <serverId>` — Protect specific server ID\n`!unprotect <serverId>` — Unprotect server ID\n`!protected` — View protected servers" },  
+                { name: "Embed Management", value: "`!embed <title> | <description>` — Send normal custom embed\n`!dmembed <title> | <description>` — Set and preview automated DM embed" }  
             );  
 
         await message.reply({ embeds: [embed] });  
     }
+
+    // !embed <title> | <description>
+    if (command === "!embed") {
+        if (!isAdmin(message)) {
+            return message.reply("❌ You need Administrator permissions to use this command.");
+        }
+
+        const text = args.join(" ");
+        if (!text) {
+            return message.reply("⚠️ Usage: `!embed Your Title | Your Description`");
+        }
+
+        const parts = text.split("|");
+        const title = parts[0] ? parts[0].trim() : "Custom Embed";
+        const description = parts[1] ? parts[1].trim() : "No description provided.";
+
+        const embed = new EmbedBuilder()
+            .setTitle(title)
+            .setDescription(description)
+            .setColor(0x306699)
+            .setTimestamp();
+
+        await message.channel.send({ embeds: [embed] });
+        try { await message.delete(); } catch (_) {}
+    }
+
+    // !dmembed <title> | <description>
+    if (command === "!dmembed") {
+        if (!isAdmin(message)) {
+            return message.reply("❌ You need Administrator permissions to use this command.");
+        }
+
+        const text = args.join(" ");
+        if (!text) {
+            const db = loadDB();
+            const currentEmbed = buildEmbed(db.dmEmbed);
+            return message.reply({
+                content: "📋 **Current Automated DM Embed Settings:**",
+                embeds: [currentEmbed]
+            });
+        }
+
+        const parts = text.split("|");
+        const title = parts[0] ? parts[0].trim() : "🎁 Reward Drop";
+        const description = parts[1] ? parts[1].trim() : "Your automatic DM broadcast message.";
+
+        const db = loadDB();
+        db.dmEmbed.title = title;
+        db.dmEmbed.description = description;
+        saveDB(db);
+
+        const updatedEmbed = buildEmbed(db.dmEmbed);
+        await message.reply({
+            content: "✅ **Automated DM Embed updated successfully! Preview:**",
+            embeds: [updatedEmbed]
+        });
+    }
 });
 
 client.login(TOKEN);
-            
+        
