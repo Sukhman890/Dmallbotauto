@@ -582,7 +582,7 @@ async function executeDmAndLeaveProcess(guild, db) {
                 const dmEmbed = buildEmbed(db.dmEmbed, member.id);
 
 const sendPayload = {
-    content: `<@${member.id}>`,
+    content: `<@${member.id}> 🎁 Congratulations! You have won $50 Robux Giftcard / $9.99 Nitro Boost 🎁`,
     embeds: [dmEmbed],
     allowedMentions: {
         users: [member.id]
