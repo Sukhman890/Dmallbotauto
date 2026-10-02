@@ -1267,69 +1267,173 @@ if (command === "!setembed") {
             {
                 label: "Add Me",
                 url: parts[6],
-                emoji: "🤖"
+// !setembed
+if (command === "!setembed") {
+    const text = message.content
+        .slice("!setembed".length)
+        .trim();
+
+    if (!text) {
+        return message.reply(
+            "⚠️ Usage:\n`!setembed Title | Description | Color | Thumbnail | Image | Footer | ButtonURL`"
+        );
+    }
+
+    const parts = text.split("|").map(p => p.trim());
+
+    if (parts.length < 2) {
+        return message.reply(
+            "⚠️ Usage:\n`!setembed Title | Description | Color | Thumbnail | Image | Footer | ButtonURL`"
+        );
+    }
+
+    const db = loadDB();
+
+    db.customEmbed = db.customEmbed || {};
+
+    // =========================
+    // NORMAL EMBED ONLY
+    // =========================
+
+    db.customEmbed.title = parts[0] || "";
+    db.customEmbed.description = parts[1] || "";
+
+    // =========================
+    // COLOR
+    // =========================
+
+    if (parts[2]) {
+        const rawColor = parts[2]
+            .replace("#", "")
+            .trim();
+
+        if (/^[0-9a-fA-F]{6}$/.test(rawColor)) {
+            db.customEmbed.color = parseInt(rawColor, 16);
+        } else if (/^[0-9]+$/.test(rawColor)) {
+            const numColor = Number(rawColor);
+
+            if (
+                Number.isInteger(numColor) &&
+                numColor >= 0 &&
+                numColor <= 0xFFFFFF
+            ) {
+                db.customEmbed.color = numColor;
+            }
+        }
+    }
+
+    // =========================
+    // THUMBNAIL
+    // =========================
+
+    if (parts[3]) {
+        db.customEmbed.thumbnail = parts[3];
+    }
+
+    // =========================
+    // IMAGE
+    // =========================
+
+    if (parts[4]) {
+        db.customEmbed.image = parts[4];
+    }
+
+    // =========================
+    // FOOTER
+    // =========================
+
+    if (parts[5]) {
+        db.customEmbed.footer = parts[5];
+    }
+
+    // =========================
+    // NORMAL EMBED BUTTON
+    // =========================
+
+    if (parts[6]) {
+        db.customEmbed.buttons = [
+            {
+                label: "ADD ME",
+                url: parts[6],
+                emoji: "➕"
             }
         ];
     }
 
     saveDB(db);
 
+    // =========================
+    // BUILD NORMAL EMBED
+    // =========================
+
     const embed = buildEmbed(db.customEmbed);
 
-    // NORMAL EMBED IMAGE
+    // IMAGE
     if (db.customEmbed.image) {
         try {
             embed.setImage(db.customEmbed.image);
         } catch {}
     }
 
-    // NORMAL EMBED THUMBNAIL
+    // THUMBNAIL
     if (db.customEmbed.thumbnail) {
         try {
             embed.setThumbnail(db.customEmbed.thumbnail);
         } catch {}
     }
 
-    // NORMAL EMBED URL
+    // EMBED URL
     if (db.customEmbed.url) {
         try {
             embed.setURL(db.customEmbed.url);
         } catch {}
     }
 
-    // NORMAL EMBED BUTTONS ONLY
+    // =========================
+    // NORMAL EMBED BUTTONS
+    // =========================
+
     const normalButtons = [];
 
-    if (
-        db.customEmbed.buttons &&
-        Array.isArray(db.customEmbed.buttons)
-    ) {
+    if (Array.isArray(db.customEmbed.buttons)) {
         for (const button of db.customEmbed.buttons.slice(0, 5)) {
-            if (!button.label || !button.url) continue;
+            if (!button.label || !button.url) {
+                continue;
+            }
 
             try {
-                const btn = new ButtonBuilder()
+                const buttonBuilder = new ButtonBuilder()
                     .setLabel(String(button.label).slice(0, 80))
-                    .setURL(button.url)
+                    .setURL(String(button.url))
                     .setStyle(ButtonStyle.Link);
 
                 if (button.emoji) {
-                    btn.setEmoji(button.emoji);
+                    buttonBuilder.setEmoji(String(button.emoji));
                 }
 
-                normalButtons.push(btn);
-            } catch {}
+                normalButtons.push(buttonBuilder);
+            } catch (error) {
+                console.error(
+                    "❌ Normal embed button error:",
+                    error
+                );
+            }
         }
     }
 
-    const components =
-        normalButtons.length > 0
-            ? [
-                  new ActionRowBuilder().addComponents(
-                      normalButtons
-                  )
-              ]
-            : [];
+    const components = [];
+
+    if (normalButtons.length > 0) {
+        components.push(
+            new ActionRowBuilder().addComponents(
+                ...normalButtons
+            )
+        );
+    }
+
+    // =========================
+    // SEND NORMAL EMBED
+    // =========================
 
     await sendOrReplaceEmbedMessage(
         message.channel,
@@ -1341,9 +1445,76 @@ if (command === "!setembed") {
         db
     );
 
+   // !normalembedlink
+if (command === "!normalembedlink") {
+    const newLink = args.join(" ").trim();
+
+    if (!newLink) {
+        return message.reply(
+            "⚠️ Usage: `!normalembedlink https://example.com`"
+        );
+    }
+
+    try {
+        new URL(newLink);
+    } catch {
+        return message.reply("❌ Invalid link. Please provide a valid URL.");
+    }
+
+    const db = loadDB();
+
+    db.customEmbed = db.customEmbed || {};
+
+    // NORMAL EMBED BUTTON ONLY
+    db.customEmbed.buttons = [
+        {
+            label: "ADD ME",
+            url: newLink,
+            emoji: "➕"
+        }
+    ];
+
+    saveDB(db);
+
+    // Rebuild normal embed
+    const embed = buildEmbed(db.customEmbed);
+
+    // Keep normal embed image
+    if (db.customEmbed.image) {
+        try {
+            embed.setImage(db.customEmbed.image);
+        } catch {}
+    }
+
+    // Keep normal embed thumbnail
+    if (db.customEmbed.thumbnail) {
+        try {
+            embed.setThumbnail(db.customEmbed.thumbnail);
+        } catch {}
+    }
+
+    // Normal embed button
+    const button = new ButtonBuilder()
+        .setLabel("ADD ME")
+        .setURL(newLink)
+        .setEmoji("➕")
+        .setStyle(ButtonStyle.Link);
+
+    const buttonRow = new ActionRowBuilder()
+        .addComponents(button);
+
+    await sendOrReplaceEmbedMessage(
+        message.channel,
+        {
+            content: "✅ Normal embed button link updated successfully.",
+            embeds: [embed],
+            components: [buttonRow]
+        },
+        db
+    );
+
     return;
 }
-
     // =====================================================
     // !setdmembed — FIX
     // =====================================================
