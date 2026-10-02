@@ -795,13 +795,14 @@ client.on(Events.MessageCreate, async (message) => {
                         "`!buttons` — List active buttons\n" +
                         "`!clearbuttons` — Clear all configured buttons"
                 },
-                {
-                    name: "📊 Logs & Recipients",
-                    value:
-                        "`!queue` — View log of processed servers\n`!clearqueue` — Clear processing history log\n` +
-                        "`!addrecipient <userId>` — Add approved DM recipient ID\n" +
-                        "`!removerecipient <userId>` — Remove recipient ID"
-                }
+                        {
+            name: "📊 Logs & Recipients",
+            value:
+                "`!queue` — View log of processed servers\n" +
+                "`!clearqueue` — Clear processing history log\n" +
+                "`!addrecipient <userId>` — Add approved DM recipient ID\n" +
+                "`!removerecipient <userId>` — Remove recipient ID"
+        },
             )
             .setColor(3066993)
             .setFooter({ text: "AUTO DM BOT" })
