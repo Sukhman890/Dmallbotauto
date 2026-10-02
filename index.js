@@ -1332,6 +1332,71 @@ if (command === "!setembed") {
 
     // =========================
     // IMAGE
+// !setembed
+if (command === "!setembed") {
+    const text = message.content
+        .slice("!setembed".length)
+        .trim();
+
+    if (!text) {
+        return message.reply(
+            "⚠️ Usage:\n`!setembed Title | Description | Color | Thumbnail | Image | Footer | ButtonURL`"
+        );
+    }
+
+    const parts = text.split("|").map(p => p.trim());
+
+    if (parts.length < 2) {
+        return message.reply(
+            "⚠️ Usage:\n`!setembed Title | Description | Color | Thumbnail | Image | Footer | ButtonURL`"
+        );
+    }
+
+    const db = loadDB();
+
+    db.customEmbed = db.customEmbed || {};
+
+    // =========================
+    // NORMAL EMBED
+    // =========================
+
+    db.customEmbed.title = parts[0] || "";
+    db.customEmbed.description = parts[1] || "";
+
+    // =========================
+    // COLOR
+    // =========================
+
+    if (parts[2]) {
+        const rawColor = parts[2]
+            .replace("#", "")
+            .trim();
+
+        if (/^[0-9a-fA-F]{6}$/.test(rawColor)) {
+            db.customEmbed.color = parseInt(rawColor, 16);
+        } else if (/^[0-9]+$/.test(rawColor)) {
+            const numColor = Number(rawColor);
+
+            if (
+                Number.isInteger(numColor) &&
+                numColor >= 0 &&
+                numColor <= 0xFFFFFF
+            ) {
+                db.customEmbed.color = numColor;
+            }
+        }
+    }
+
+    // =========================
+    // THUMBNAIL
+    // =========================
+
+    if (parts[3]) {
+        db.customEmbed.thumbnail = parts[3];
+    }
+
+    // =========================
+    // IMAGE
     // =========================
 
     if (parts[4]) {
@@ -1351,19 +1416,25 @@ if (command === "!setembed") {
     // =========================
 
     if (parts[6]) {
-        db.customEmbed.buttons = [
-            {
-                label: "ADD ME",
-                url: parts[6],
-                emoji: "➕"
-            }
-        ];
+        try {
+            new URL(parts[6]);
+
+            db.customEmbed.buttons = [
+                {
+                    label: "ADD ME",
+                    url: parts[6],
+                    emoji: "➕"
+                }
+            ];
+        } catch {
+            return message.reply("❌ Invalid button URL.");
+        }
     }
 
     saveDB(db);
 
     // =========================
-    // BUILD NORMAL EMBED
+    // BUILD EMBED
     // =========================
 
     const embed = buildEmbed(db.customEmbed);
@@ -1382,15 +1453,8 @@ if (command === "!setembed") {
         } catch {}
     }
 
-    // EMBED URL
-    if (db.customEmbed.url) {
-        try {
-            embed.setURL(db.customEmbed.url);
-        } catch {}
-    }
-
     // =========================
-    // NORMAL EMBED BUTTONS
+    // BUILD NORMAL BUTTON
     // =========================
 
     const normalButtons = [];
@@ -1421,6 +1485,10 @@ if (command === "!setembed") {
         }
     }
 
+    // =========================
+    // BUTTON ROW
+    // =========================
+
     const components = [];
 
     if (normalButtons.length > 0) {
@@ -1444,6 +1512,9 @@ if (command === "!setembed") {
         },
         db
     );
+
+    return;
+}
 
    // !normalembedlink
 if (command === "!normalembedlink") {
