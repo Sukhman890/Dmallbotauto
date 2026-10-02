@@ -807,13 +807,14 @@ client.on(Events.MessageCreate, async (message) => {
                         "`!protected` — View protected servers list"
                 },
                 {
-                    name: "🎨 Embed Customization",
-                    value:
-                        "`!dmembed` — Preview configured active DM embed & buttons\n" +
-                        "`!setdmembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]` — Update DM embed\n" +
-                        "`!embed` — Preview active custom embed\n" +
-                        "`!setembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]` — Update custom embed"
-                },
+    name: "🎨 Embed Customization",
+    value:
+        "`!dmembed` — Preview configured active DM embed & buttons\n" +
+        "`!setdmembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]` — Update DM embed\n" +
+        "`!embed` — Preview active custom embed & buttons\n" +
+        "`!setembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer] | [ButtonURL]` — Update custom embed\n" +
+        "`!normalembedlink <URL>` — Change normal embed ADD ME button link"
+},
                 {
                     name: "🎛️ Button Support",
                     value:
