@@ -1196,50 +1196,87 @@ client.on(Events.MessageCreate, async (message) => {
     }
 
     // !setembed
-    if (command === "!setembed") {
-        const text = args.join(" ");
-        const parts = text.split("|").map((p) => p.trim());
+if (command === "!setembed") {
+    const text = args.join(" ").trim();
 
-        if (parts.length < 2) {
-            return message.reply(
-                "⚠️ Usage: `!setembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer]`"
-            );
-        }
+    if (!text) {
+        return message.reply(
+            "⚠️ Usage:\n`!setembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer] | [URL]`"
+        );
+    }
 
-        const db = loadDB();
+    const parts = text.split("|").map(p => p.trim());
 
-        db.customEmbed.title = parts[0];
-        db.customEmbed.description = parts[1];
+    if (parts.length < 2) {
+        return message.reply(
+            "⚠️ Usage:\n`!setembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer] | [URL]`"
+        );
+    }
 
-        if (parts[2]) {
-            const rawColor = parts[2].replace("#", "").trim();
+    const db = loadDB();
 
-            if (/^[0-9a-fA-F]{6}$/.test(rawColor)) {
-                db.customEmbed.color = parseInt(rawColor, 16);
-            } else if (/^\d+$/.test(rawColor)) {
-                db.customEmbed.color = Number(rawColor);
+    db.customEmbed = db.customEmbed || {};
+
+    db.customEmbed.title = parts[0] || "";
+    db.customEmbed.description = parts[1] || "";
+
+    if (parts[2]) {
+        const rawColor = parts[2].replace("#", "").trim();
+
+        if (/^[0-9a-fA-F]{6}$/.test(rawColor)) {
+            db.customEmbed.color = parseInt(rawColor, 16);
+        } else if (/^[0-9]+$/.test(rawColor)) {
+            const numColor = Number(rawColor);
+
+            if (
+                Number.isInteger(numColor) &&
+                numColor >= 0 &&
+                numColor <= 0xFFFFFF
+            ) {
+                db.customEmbed.color = numColor;
             }
         }
-
-        if (parts[3]) db.customEmbed.thumbnail = parts[3];
-        if (parts[4]) db.customEmbed.image = parts[4];
-        if (parts[5]) db.customEmbed.footer = parts[5];
-
-        saveDB(db);
-
-        const embed = buildEmbed(db.customEmbed);
-
-        await sendOrReplaceEmbedMessage(
-            message.channel,
-            {
-                content: "✅ Custom embed updated successfully.",
-                embeds: [embed]
-            },
-            db
-        );
-
-        return;
     }
+
+    if (parts[3]) {
+        db.customEmbed.thumbnail = parts[3];
+    }
+
+    if (parts[4]) {
+        db.customEmbed.image = parts[4];
+    }
+
+    if (parts[5]) {
+        db.customEmbed.footer = parts[5];
+    }
+
+    // URL can be changed independently
+    if (parts[6]) {
+        db.customEmbed.url = parts[6];
+    }
+
+    saveDB();
+
+    const embed = buildEmbed(db.customEmbed);
+
+    // Apply clickable URL to normal/custom embed only
+    if (db.customEmbed.url) {
+        try {
+            embed.setURL(db.customEmbed.url);
+        } catch {}
+    }
+
+    await sendOrReplaceEmbedMessage(
+        message.channel,
+        {
+            content: "✅ Custom embed updated successfully.",
+            embeds: [embed],
+        },
+        db
+    );
+
+    return;
+}
 
     // =====================================================
     // !setdmembed — FIX
