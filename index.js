@@ -1203,12 +1203,11 @@ client.on(Events.MessageCreate, async (message) => {
 
     // !setembed
 if (command === "!setembed") {
-    // Keep the original message formatting and line breaks
     const text = message.content.slice("!setembed".length).trim();
 
     if (!text) {
         return message.reply(
-            "⚠️ Usage:\n`!setembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer] | [URL]`"
+            "⚠️ Usage:\n`!setembed Title | Description | Color | Thumbnail | Image | Footer | ButtonURL`"
         );
     }
 
@@ -1216,7 +1215,7 @@ if (command === "!setembed") {
 
     if (parts.length < 2) {
         return message.reply(
-            "⚠️ Usage:\n`!setembed Title | Description | [Color] | [Thumbnail] | [Image] | [Footer] | [URL]`"
+            "⚠️ Usage:\n`!setembed Title | Description | Color | Thumbnail | Image | Footer | ButtonURL`"
         );
     }
 
@@ -1224,31 +1223,9 @@ if (command === "!setembed") {
 
     db.customEmbed = db.customEmbed || {};
 
-    // Restore custom emojis if they are received as :name:
-    function restoreCustomEmojis(value) {
-        if (!value) return "";
-
-        return String(value)
-            .replaceAll(
-                ":Gift:",
-                "<:Gift:1496513903566389454>"
-            )
-            .replaceAll(
-                ":Pin:",
-                "<:Pin:1496514484070649940>"
-            )
-            .replaceAll(
-                ":tada:",
-                "<:tada:1491757856725405767>"
-            );
-    }
-
-    // TITLE
-    db.customEmbed.title = restoreCustomEmojis(parts[0]);
-
-    // DESCRIPTION
-    // Preserve line breaks, quotes, bold text and custom emojis
-    db.customEmbed.description = restoreCustomEmojis(parts[1]);
+    // NORMAL EMBED ONLY
+    db.customEmbed.title = parts[0] || "";
+    db.customEmbed.description = parts[1] || "";
 
     // COLOR
     if (parts[2]) {
@@ -1281,33 +1258,85 @@ if (command === "!setembed") {
 
     // FOOTER
     if (parts[5]) {
-        db.customEmbed.footer = restoreCustomEmojis(parts[5]);
+        db.customEmbed.footer = parts[5];
     }
 
-    // CLICKABLE URL
+    // NORMAL EMBED BUTTON URL
     if (parts[6]) {
-        db.customEmbed.url = parts[6];
+        db.customEmbed.buttons = [
+            {
+                label: "Add Me",
+                url: parts[6],
+                emoji: "🤖"
+            }
+        ];
     }
 
-    // SAVE DATABASE
     saveDB(db);
 
-    // Build normal/custom embed
     const embed = buildEmbed(db.customEmbed);
 
-    // Apply clickable URL to normal/custom embed
+    // NORMAL EMBED IMAGE
+    if (db.customEmbed.image) {
+        try {
+            embed.setImage(db.customEmbed.image);
+        } catch {}
+    }
+
+    // NORMAL EMBED THUMBNAIL
+    if (db.customEmbed.thumbnail) {
+        try {
+            embed.setThumbnail(db.customEmbed.thumbnail);
+        } catch {}
+    }
+
+    // NORMAL EMBED URL
     if (db.customEmbed.url) {
         try {
             embed.setURL(db.customEmbed.url);
         } catch {}
     }
 
-    // Send/update the normal custom embed
+    // NORMAL EMBED BUTTONS ONLY
+    const normalButtons = [];
+
+    if (
+        db.customEmbed.buttons &&
+        Array.isArray(db.customEmbed.buttons)
+    ) {
+        for (const button of db.customEmbed.buttons.slice(0, 5)) {
+            if (!button.label || !button.url) continue;
+
+            try {
+                const btn = new ButtonBuilder()
+                    .setLabel(String(button.label).slice(0, 80))
+                    .setURL(button.url)
+                    .setStyle(ButtonStyle.Link);
+
+                if (button.emoji) {
+                    btn.setEmoji(button.emoji);
+                }
+
+                normalButtons.push(btn);
+            } catch {}
+        }
+    }
+
+    const components =
+        normalButtons.length > 0
+            ? [
+                  new ActionRowBuilder().addComponents(
+                      normalButtons
+                  )
+              ]
+            : [];
+
     await sendOrReplaceEmbedMessage(
         message.channel,
         {
             content: "✅ Custom embed updated successfully.",
             embeds: [embed],
+            components: components
         },
         db
     );
