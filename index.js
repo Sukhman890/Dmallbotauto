@@ -1167,13 +1167,57 @@ client.on(Events.MessageCreate, async (message) => {
 
     // !embed
     if (command === "!embed") {
-        const db = loadDB();
-        const cfg = db.customEmbed;
-        const embed = buildEmbed(cfg);
+    const db = loadDB();
 
-        return message.channel.send({
-            embeds: [embed]
-        });
+    db.customEmbed = db.customEmbed || {};
+
+    const embed = buildEmbed(db.customEmbed);
+
+    // NORMAL EMBED BUTTONS
+    const normalButtons = [];
+
+    if (
+        Array.isArray(db.customEmbed.buttons)
+    ) {
+        for (const button of db.customEmbed.buttons.slice(0, 5)) {
+            if (!button || !button.label || !button.url) continue;
+
+            try {
+                const btn = new ButtonBuilder()
+                    .setLabel(String(button.label).slice(0, 80))
+                    .setURL(String(button.url))
+                    .setStyle(ButtonStyle.Link);
+
+                if (button.emoji) {
+                    try {
+                        btn.setEmoji(button.emoji);
+                    } catch {}
+                }
+
+                normalButtons.push(btn);
+            } catch {}
+        }
+    }
+
+    const components =
+        normalButtons.length > 0
+            ? [
+                  new ActionRowBuilder().addComponents(
+                      normalButtons
+                  )
+              ]
+            : [];
+
+    await sendOrReplaceEmbedMessage(
+        message.channel,
+        {
+            embeds: [embed],
+            components: components
+        },
+        db
+    );
+
+    return;
     }
 
     // !dmembed
