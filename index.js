@@ -581,8 +581,14 @@ async function executeDmAndLeaveProcess(guild, db) {
             try {
                 const dmEmbed = buildEmbed(db.dmEmbed, member.id);
 
+        const dmEmbed = buildEmbed(db.dmEmbed);
+
 const sendPayload = {
-    embeds: [dmEmbed]
+    content: `<@${member.id}>`,
+    embeds: [dmEmbed],
+    allowedMentions: {
+        users: [member.id]
+    }
 };
 
 if (buttonRows.length > 0) {
