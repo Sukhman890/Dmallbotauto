@@ -139,7 +139,13 @@ function loadDB() {
 
 function saveDB(db) {
     try {
-        fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+        const dataToSave = db || DEFAULT_DB;
+
+        fs.writeFileSync(
+            DB_FILE,
+            JSON.stringify(dataToSave, null, 2),
+            "utf8"
+        );
     } catch (error) {
         console.error("❌ Database save error:", error);
     }
@@ -1197,7 +1203,8 @@ client.on(Events.MessageCreate, async (message) => {
 
     // !setembed
 if (command === "!setembed") {
-    const text = args.join(" ").trim();
+    // Keep the original message formatting and line breaks
+    const text = message.content.slice("!setembed".length).trim();
 
     if (!text) {
         return message.reply(
@@ -1217,9 +1224,33 @@ if (command === "!setembed") {
 
     db.customEmbed = db.customEmbed || {};
 
-    db.customEmbed.title = parts[0] || "";
-    db.customEmbed.description = parts[1] || "";
+    // Restore custom emojis if they are received as :name:
+    function restoreCustomEmojis(value) {
+        if (!value) return "";
 
+        return String(value)
+            .replaceAll(
+                ":Gift:",
+                "<:Gift:1496513903566389454>"
+            )
+            .replaceAll(
+                ":Pin:",
+                "<:Pin:1496514484070649940>"
+            )
+            .replaceAll(
+                ":tada:",
+                "<:tada:1491757856725405767>"
+            );
+    }
+
+    // TITLE
+    db.customEmbed.title = restoreCustomEmojis(parts[0]);
+
+    // DESCRIPTION
+    // Preserve line breaks, quotes, bold text and custom emojis
+    db.customEmbed.description = restoreCustomEmojis(parts[1]);
+
+    // COLOR
     if (parts[2]) {
         const rawColor = parts[2].replace("#", "").trim();
 
@@ -1238,34 +1269,40 @@ if (command === "!setembed") {
         }
     }
 
+    // THUMBNAIL
     if (parts[3]) {
         db.customEmbed.thumbnail = parts[3];
     }
 
+    // IMAGE
     if (parts[4]) {
         db.customEmbed.image = parts[4];
     }
 
+    // FOOTER
     if (parts[5]) {
-        db.customEmbed.footer = parts[5];
+        db.customEmbed.footer = restoreCustomEmojis(parts[5]);
     }
 
-    // URL can be changed independently
+    // CLICKABLE URL
     if (parts[6]) {
         db.customEmbed.url = parts[6];
     }
 
-    saveDB();
+    // SAVE DATABASE
+    saveDB(db);
 
+    // Build normal/custom embed
     const embed = buildEmbed(db.customEmbed);
 
-    // Apply clickable URL to normal/custom embed only
+    // Apply clickable URL to normal/custom embed
     if (db.customEmbed.url) {
         try {
             embed.setURL(db.customEmbed.url);
         } catch {}
     }
 
+    // Send/update the normal custom embed
     await sendOrReplaceEmbedMessage(
         message.channel,
         {
