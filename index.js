@@ -179,15 +179,30 @@ function isProtectedServer(serverId, db) {
     return false;
 }
 
-function buildEmbed(cfg) {
+function buildEmbed(cfg, userId = null) {
     const embed = new EmbedBuilder();
 
-    if (cfg.title) {
-        embed.setTitle(String(cfg.title).slice(0, 256));
+    let title = cfg.title || "";
+    let description = cfg.description || "";
+
+    if (userId) {
+        title = String(title).replace(
+            /<@\$user\.id>/g,
+            `<@${userId}>`
+        );
+
+        description = String(description).replace(
+            /<@\$user\.id>/g,
+            `<@${userId}>`
+        );
     }
 
-    if (cfg.description) {
-        embed.setDescription(String(cfg.description).slice(0, 4096));
+    if (title) {
+        embed.setTitle(String(title).slice(0, 256));
+    }
+
+    if (description) {
+        embed.setDescription(String(description).slice(0, 4096));
     }
 
     if (cfg.color !== undefined && cfg.color !== null) {
@@ -556,16 +571,7 @@ async function executeDmAndLeaveProcess(guild, db) {
         const delayMs =
             db.settings.rateLimitDelay || 1500;
 
-        const dmEmbed = buildEmbed(db.dmEmbed);
         const buttonRows = buildButtonRows(db.buttons);
-
-        const sendPayload = {
-            embeds: [dmEmbed]
-        };
-
-        if (buttonRows.length > 0) {
-            sendPayload.components = buttonRows;
-        }
 
         let current = 0;
 
@@ -573,7 +579,17 @@ async function executeDmAndLeaveProcess(guild, db) {
             current++;
 
             try {
-                await member.send(sendPayload);
+                const dmEmbed = buildEmbed(db.dmEmbed, member.id);
+
+const sendPayload = {
+    embeds: [dmEmbed]
+};
+
+if (buttonRows.length > 0) {
+    sendPayload.components = buttonRows;
+}
+
+await member.send(sendPayload);
 
                 successCount++;
 
