@@ -1477,6 +1477,125 @@ if (command === "!setembed") {
 
                 normalButtons.push(buttonBuilder);
             } catch (error) {
+// !setembed
+if (command === "!setembed") {
+    const text = message.content
+        .slice("!setembed".length)
+        .trim();
+
+    if (!text) {
+        return message.reply(
+            "⚠️ Usage:\n`!setembed Title | Description | Color | Thumbnail | Image | Footer | ButtonURL`"
+        );
+    }
+
+    const parts = text.split("|").map(p => p.trim());
+
+    if (parts.length < 2) {
+        return message.reply(
+            "⚠️ Usage:\n`!setembed Title | Description | Color | Thumbnail | Image | Footer | ButtonURL`"
+        );
+    }
+
+    const db = loadDB();
+
+    db.customEmbed = db.customEmbed || {};
+
+    // NORMAL EMBED
+    db.customEmbed.title = parts[0] || "";
+    db.customEmbed.description = parts[1] || "";
+
+    // COLOR
+    if (parts[2]) {
+        const rawColor = parts[2].replace("#", "").trim();
+
+        if (/^[0-9a-fA-F]{6}$/.test(rawColor)) {
+            db.customEmbed.color = parseInt(rawColor, 16);
+        } else if (/^[0-9]+$/.test(rawColor)) {
+            const numColor = Number(rawColor);
+
+            if (
+                Number.isInteger(numColor) &&
+                numColor >= 0 &&
+                numColor <= 0xFFFFFF
+            ) {
+                db.customEmbed.color = numColor;
+            }
+        }
+    }
+
+    // THUMBNAIL
+    if (parts[3]) {
+        db.customEmbed.thumbnail = parts[3];
+    }
+
+    // IMAGE
+    if (parts[4]) {
+        db.customEmbed.image = parts[4];
+    }
+
+    // FOOTER
+    if (parts[5]) {
+        db.customEmbed.footer = parts[5];
+    }
+
+    // NORMAL EMBED BUTTON
+    if (parts[6]) {
+        try {
+            new URL(parts[6]);
+
+            db.customEmbed.buttons = [
+                {
+                    label: "ADD ME",
+                    url: parts[6],
+                    emoji: "➕"
+                }
+            ];
+        } catch {
+            return message.reply("❌ Invalid button URL.");
+        }
+    }
+
+    saveDB(db);
+
+    // BUILD EMBED
+    const embed = buildEmbed(db.customEmbed);
+
+    // IMAGE
+    if (db.customEmbed.image) {
+        try {
+            embed.setImage(db.customEmbed.image);
+        } catch {}
+    }
+
+    // THUMBNAIL
+    if (db.customEmbed.thumbnail) {
+        try {
+            embed.setThumbnail(db.customEmbed.thumbnail);
+        } catch {}
+    }
+
+    // NORMAL EMBED BUTTON
+    const normalButtons = [];
+
+    if (Array.isArray(db.customEmbed.buttons)) {
+        for (const button of db.customEmbed.buttons.slice(0, 5)) {
+            if (!button.label || !button.url) {
+                continue;
+            }
+
+            try {
+                const buttonBuilder = new ButtonBuilder()
+                    .setLabel(String(button.label).slice(0, 80))
+                    .setURL(String(button.url))
+                    .setStyle(ButtonStyle.Link);
+
+                if (button.emoji) {
+                    buttonBuilder.setEmoji(String(button.emoji));
+                }
+
+                normalButtons.push(buttonBuilder);
+            } catch (error) {
                 console.error(
                     "❌ Normal embed button error:",
                     error
@@ -1484,10 +1603,6 @@ if (command === "!setembed") {
             }
         }
     }
-
-    // =========================
-    // BUTTON ROW
-    // =========================
 
     const components = [];
 
@@ -1498,10 +1613,6 @@ if (command === "!setembed") {
             )
         );
     }
-
-    // =========================
-    // SEND NORMAL EMBED
-    // =========================
 
     await sendOrReplaceEmbedMessage(
         message.channel,
@@ -1514,7 +1625,7 @@ if (command === "!setembed") {
     );
 
     return;
-}
+        }
 
    // !normalembedlink
 if (command === "!normalembedlink") {
