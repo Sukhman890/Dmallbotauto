@@ -5,8 +5,9 @@
     "requireOptIn": false
   },
   "protectedServers": [
-    "1507960325511843910"
-  ],
+  "1507960325511843910",
+  "1268246037844201483"
+],
   "customEmbed": {
     "title": "📢 Custom Bot Embed",
     "description": "Your custom embed description.",
