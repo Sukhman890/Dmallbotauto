@@ -22,9 +22,9 @@
     "fields": [],
     "buttons": [
       {
-        "label": "Add Me",
+        "label": "ADD ME",
         "url": "https://discord.com/oauth2/authorize?client_id=YOUR_BOT_ID&permissions=8&scope=bot",
-        "emoji": "🤖"
+        "emoji": "➕"
       }
     ]
   },
